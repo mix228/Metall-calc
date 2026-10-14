@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Склад: учёт остатков</title>
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: var(--bg, #f5f5f7);
+            color: var(--text, #1c1c1e);
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: var(--panel, #ffffff);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        h1 { color: var(--text, #333); }
+        h2 { color: var(--text, #333); margin: 30px 0 10px; }
+        .subtitle { color: var(--muted, #666); margin-bottom: 20px; }
+
+        a.back {
+            color: var(--accent, #0a6cdf);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .banner {
+            padding: 12px;
+            border-radius: 6px;
+            background: var(--stripe, #f8f9fa);
+            color: var(--muted, #555);
+            border: 1px solid var(--border, #e0e0e0);
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .banner.msg {
+            background: rgba(40, 167, 69, 0.15);
+            color: var(--text, #155724);
+            border-color: rgba(40, 167, 69, 0.4);
+        }
+
+        /* ---------- таблица остатков (grid как в /materials_page) ---------- */
+        .grid-row {
+            display: grid;
+            grid-template-columns: 200px 90px 90px 100px 90px 150px 1fr auto;
+            gap: 6px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .grid-row.header {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text, #333);
+        }
+
+        .grid-row input, .grid-row select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border, #ccc);
+            border-radius: 4px;
+            font-size: 13px;
+            background: var(--input-bg, #ffffff);
+            color: var(--text, #1c1c1e);
+        }
+
+        .grid-row .calc-cell {
+            font-size: 13px;
+            color: var(--muted, #666);
+            padding: 8px 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .grid-row .calc-cell.neg { color: #dc3545; font-weight: 700; }
+
+        .row-line {
+            border-bottom: 1px solid var(--border, #eeeeee);
+            padding-bottom: 6px;
+        }
+
+        .grid-row button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 4px;
+            color: #ffffff;
+        }
+
+        .btn-save { background: #28a745; }
+        .btn-save:hover { background: #218838; }
+        .btn-adjust { background: #fd7e14; }
+        .btn-adjust:hover { background: #d96c0c; }
+        .btn-add { background: #0a6cdf; padding: 12px 24px; font-size: 15px; }
+        .btn-add:hover { background: #0855b0; }
+        .btn-del { background: #dc3545; }
+        .btn-del:hover { background: #c82333; }
+        .btn-small { background: #0a6cdf; color: #fff; padding: 6px 14px; font-size: 13px; }
+
+        .theme-toggle {
+            background: var(--panel, #ffffff);
+            color: var(--text, #333);
+            border: 1px solid var(--border, #ccc);
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .untracked { color: var(--muted, #999); font-style: italic; }
+
+        /* ---------- формы блоков ---------- */
+        .form-inline {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            margin-bottom: 10px;
+        }
+        .form-inline > div { flex: 1; min-width: 160px; }
+        .form-inline label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted, #666);
+            margin-bottom: 4px;
+        }
+        .form-inline input, .form-inline select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border, #ccc);
+            border-radius: 6px;
+            font-size: 14px;
+            background: var(--input-bg, #ffffff);
+            color: var(--text, #1c1c1e);
+        }
+
+        /* ---------- журнал / недостачи (таблицы как на главной) ---------- */
+        .table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid var(--border, #ddd);
+            border-radius: 6px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 700px;
+        }
+        th, td {
+            padding: 8px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border, #dddddd);
+            color: var(--text, #1c1c1e);
+            white-space: nowrap;
+        }
+        th { background: var(--stripe, rgba(0,0,0,0.03)); font-weight: 600; }
+        tbody tr:nth-child(even) { background: var(--stripe, rgba(0,0,0,0.03)); }
+
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .tag-in { background: #28a745; }
+        .tag-out { background: #0a6cdf; }
+        .tag-fix { background: #fd7e14; }
+        .tag-short { background: #dc3545; }
+
+        .qty-plus { color: #28a745; font-weight: 600; }
+        .qty-minus { color: #dc3545; font-weight: 600; }
+
+        /* ---------- менеджер единиц ---------- */
+        .units-list { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+        .unit-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--stripe, #f0f0f4);
+            border: 1px solid var(--border, #ccc);
+            border-radius: 16px;
+            padding: 4px 12px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .unit-chip form { display: inline; }
+        .unit-del {
+            background: transparent;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 0 2px;
+        }
+        .unit-used { color: var(--muted, #888); font-weight: 400; font-size: 12px; }
+
+        /* ---------- модалка корректировки ---------- */
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 50;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--panel, #fff);
+            color: var(--text, #1c1c1e);
+            border: 1px solid var(--border, #ccc);
+            border-radius: 8px;
+            padding: 20px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+        }
+        .modal h3 { margin-bottom: 12px; }
+        .modal label { display: block; font-size: 12px; font-weight: 600; color: var(--muted, #666); margin: 10px 0 4px; }
+        .modal input {
+            width: 100%; padding: 10px;
+            border: 1px solid var(--border, #ccc); border-radius: 6px;
+            font-size: 16px; background: var(--input-bg, #fff); color: var(--text, #1c1c1e);
+        }
+        .modal-actions { margin-top: 16px; display: flex; gap: 10px; }
+        .modal-actions button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; }
+        .modal-ok { background: #fd7e14; color: #fff; }
+        .modal-cancel { background: #6c757d; color: #fff; }
+
+        @media (max-width: 1100px) {
+            .grid-row { grid-template-columns: 1fr 1fr; }
+            .grid-row.header { display: none; }
+        }
+
+        /* --- Мобильная адаптация (как в /materials_page) --- */
+        @media (hover: none), (pointer: coarse), (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 14px; }
+            h1 { font-size: 21px; }
+            h2 { font-size: 17px; margin: 20px 0 8px; }
+
+            .grid-row { grid-template-columns: 1fr; gap: 8px; margin-bottom: 16px; }
+            .grid-row > div { position: relative; }
+            .grid-row > div::before {
+                content: attr(data-label);
+                display: block;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                color: var(--muted, #666);
+                margin-bottom: 2px;
+            }
+
+            .grid-row input, .grid-row select {
+                width: 100%;
+                font-size: 16px; /* против автозума iOS */
+                padding: 10px;
+            }
+
+            .grid-row input[name="stock_units"],
+            .grid-row input[name="kg_per_unit"] { inputmode: decimal; }
+
+            .grid-row button { min-height: 44px; width: 100%; margin: 4px 0; }
+
+            .form-inline { flex-direction: column; align-items: stretch; }
+            .form-inline > div { min-width: 0; width: 100%; }
+            .form-inline button { min-height: 44px; width: 100%; }
+
+            .banner { font-size: 13px; }
+            a.back { padding: 8px 0; }
+            .theme-toggle { padding: 10px 12px; }
+            table { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top-row">
+            <a class="back" href="/">← Назад к калькулятору</a>
+            <a class="back" href="/materials_page">📚 Справочник материалов</a>
+            <button id="theme-toggle" class="theme-toggle" type="button">Тёмная тема</button>
+        </div>
+
+        <h1>🏗️ Склад: учёт остатков материалов</h1>
+        <p class="subtitle">Остатки хранятся в тех же ячейках файла справочника, что видит страница «Справочник». Списание возможно только в учётной единице материала.</p>
+
+        <div class="banner">
+            Источник остатков: <b>{{ fnum(info.source) }}</b> · строк: <b>{{ fnum(info.count) }}</b>
+            {% if source_kind == "none" %}
+                <br>Файл справочника не найден — заведите его или добавьте первую строку на странице «Справочник».
+            {% endif %}
+        </div>
+
+        {% if msg %}
+        <div class="banner msg">{{ fnum(msg) }}</div>
+        {% endif %}
+
+        <h2>📦 Остатки</h2>
+        <p class="subtitle" style="margin-bottom:8px;">Инлайн-редактирование сохраняет данные прямо в файл справочника. Пустая «Единица учёта» = материал не отслеживается по остаткам.</p>
+
+        <div class="grid-row header">
+            <div>Материал / марка / размер</div>
+            <div>Ед. учёта</div>
+            <div>Остаток, ед.</div>
+            <div>Кг на 1 ед.</div>
+            <div>Остаток, кг</div>
+            <div>Накладная</div>
+            <div>&nbsp;</div>
+            <div>Действия</div>
+        </div>
+
+        {% for r in rows %}
+        <form method="post" action="/stock/update" class="grid-row row-line">
+            <input type="hidden" name="row" value="{{ fnum(r.row or '') }}">
+            <input type="hidden" name="profile" value="{{ fnum(r.profile or '') }}">
+            <input type="hidden" name="material" value="{{ fnum(r.material or '') }}">
+            <input type="hidden" name="grade" value="{{ fnum(r.grade or '') }}">
+            <input type="hidden" name="size" value="{{ fnum(r.size or '') }}">
+            <input type="hidden" name="density" value="{{ fnum(r.density if r.density is not none else '') }}">
+            <input type="hidden" name="price_per_kg" value="{{ fnum(r.price_per_kg if r.price_per_kg is not none else '') }}">
+            <input type="hidden" name="weight_per_m" value="{{ fnum(r.weight_per_m if r.weight_per_m is not none else '') }}">
+            <div data-label="Материал / марка / размер" class="calc-cell">{{ fnum(r.label or '—') }}</div>
+            <div data-label="Ед. учёта">
+                <select name="unit" data-wpm="{{ fnum(r.weight_per_m if r.weight_per_m is not none else '') }}"
+                        onchange="onUnitChange(this)">
+                    <option value="">— не вести —</option>
+                    {% for u in units %}
+                    <option value="{{ fnum(u) }}" {% if u == r.unit %}selected{% endif %}>{{ fnum(u) }}</option>
+                    {% endfor %}
+                    {% if r.unit and r.unit not in units %}
+                    <option value="{{ fnum(r.unit) }}" selected>{{ fnum(r.unit) }} (вне справочника)</option>
+                    {% endif %}
+                </select>
+            </div>
+            <div data-label="Остаток, ед."><input name="stock_units" inputmode="decimal"
+                value="{{ fnum(r.stock_units if r.stock_units is not none else '') }}" placeholder="0"></div>
+            <div data-label="Кг на 1 ед."><input name="kg_per_unit" class="kgpu-input" inputmode="decimal"
+                value="{{ fnum(r.kg_per_unit if r.kg_per_unit is not none else '') }}" placeholder="кг/ед."
+                title="Автоподсказка при выборе единицы; для шт/компл/лист — ручной ввод"></div>
+            <div data-label="Остаток, кг" class="calc-cell kg-cell {{ 'neg' if r.stock_kg is not none and r.stock_kg < 0 }}">
+                {% if r.stock_kg is not none %}{{ fnum(r.stock_kg) }}{% else %}—{% endif %}
+            </div>
+            <div data-label="Накладная"><input name="invoice" value="{{ fnum(r.invoice or '') }}" placeholder="№ и дата прихода"></div>
+            <div></div>
+            <div data-label="Действия">
+                <button class="btn-save" type="submit">Сохранить</button>
+                {% if r.tracked %}
+                <button class="btn-adjust" type="button" onclick="openAdjust('{{ r.key|e }}', '{{ r.label|e }}', '{{ r.unit|e }}', '{{ fnum(r.stock_units if r.stock_units is not none else '') }}')">Корректировка</button>
+                {% endif %}
+            </div>
+        </form>
+        {% else %}
+        <div class="banner">Строк справочника пока нет.</div>
+        {% endfor %}
+
+        <h2>📥 Приход по накладной</h2>
+        <form method="post" action="/stock/receive" class="form-inline">
+            <div style="flex:2; min-width:220px;">
+                <label for="recv-key">Материал (только отслеживаемые)</label>
+                <select id="recv-key" name="key" required>
+                    <option value="">— выберите —</option>
+                    {% for r in rows %}
+                    {% if r.tracked %}
+                    <option value="{{ r.key|e }}">{{ fnum(r.label) }} [{{ fnum(r.unit) }}], остаток {{ fnum(r.stock_units if r.stock_units is not none else 0) }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="recv-qty">Количество, ед. (&gt; 0)</label>
+                <input id="recv-qty" name="qty" inputmode="decimal" placeholder="например 12" required>
+            </div>
+            <div style="flex:2; min-width:220px;">
+                <label for="recv-invoice">Накладная (номер и дата)</label>
+                <input id="recv-invoice" name="invoice" placeholder="НК-145 от 15.10.2026">
+            </div>
+            <div style="flex:0 0 auto;">
+                <button class="btn-add" type="submit" style="padding:10px 20px; font-size:14px;">Оприходовать</button>
+            </div>
+        </form>
+
+        <h2>⚖️ Корректировки и журнал движений</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Время</th><th>Тип</th><th>Материал</th>
+                        <th>±ед.</th><th>±кг</th><th>Остаток после, ед.</th><th>Основание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in moves %}
+                    <tr>
+                        <td>{{ fnum(m.created_at) }}</td>
+                        <td>
+                            {% if m.move_type == 'приход' %}<span class="tag tag-in">приход</span>
+                            {% elif m.move_type == 'списание' %}<span class="tag tag-out">списание</span>
+                            {% else %}<span class="tag tag-fix">{{ fnum(m.move_type) }}</span>{% endif %}
+                            {% if m.shortage %} <span class="tag tag-short">недостача</span>{% endif %}
+                        </td>
+                        <td>{{ fnum(m.material_label) }}</td>
+                        <td class="{{ fnum('qty-plus' if (m.qty_units or 0) >= 0 else 'qty-minus') }}">
+                            {{ fnum(m.qty_units or 0, signed=true) }} {{ fnum(m.unit) }}
+                        </td>
+                        <td class="{{ fnum('qty-plus' if (m.qty_kg or 0) >= 0 else 'qty-minus') }}">
+                            {% if m.qty_kg is not none %}{{ fnum(m.qty_kg, signed=true) }}{% else %}—{% endif %}
+                        </td>
+                        <td>{{ fnum(m.stock_after if m.stock_after is not none else 0) }}</td>
+                        <td>{{ fnum(m.basis) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7">Движений пока нет. Приход — формой выше, списание — из расчёта на главной.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <h2>🚨 Недостачи</h2>
+        <p class="subtitle" style="margin-bottom:8px;">Списания, после которых остаток ушёл в минус.</p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Время</th><th>Материал</th><th>Списано, ед.</th>
+                        <th>Остаток после, ед.</th><th>Основание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in shortages %}
+                    <tr>
+                        <td>{{ fnum(m.created_at) }}</td>
+                        <td>{{ fnum(m.material_label) }}</td>
+                        <td class="qty-minus">{{ fnum(m.qty_units or 0) }} {{ fnum(m.unit) }}</td>
+                        <td class="qty-minus">{{ fnum(m.stock_after or 0) }} {{ fnum(m.unit) }}</td>
+                        <td>{{ fnum(m.basis) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5">Недостач нет 🎉</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <h2>📏 Единицы учёта</h2>
+        <p class="subtitle" style="margin-bottom:8px;">Хранятся в data/units.json. Удалить можно только единицу, которую не использует ни один материал.</p>
+
+        <div class="units-list">
+            {% for u in units %}
+            <span class="unit-chip">
+                {{ fnum(u) }}
+                <form method="post" action="/stock/unit/delete" style="display:inline;">
+                    <input type="hidden" name="name" value="{{ fnum(u) }}">
+                    <button class="unit-del" type="submit" title="Удалить единицу"
+                            onclick="return confirm('Удалить единицу «{{ fnum(u) }}»?');">×</button>
+                </form>
+            </span>
+            {% endfor %}
+        </div>
+
+        <form method="post" action="/stock/unit/add" class="form-inline">
+            <div>
+                <label for="unit-name">Новая единица учёта</label>
+                <input id="unit-name" name="name" placeholder="например: упак., бобина, м²" required>
+            </div>
+            <div style="flex:0 0 auto;">
+                <button class="btn-add" type="submit" style="padding:10px 20px; font-size:14px;">Добавить единицу</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Модалка корректировки остатка -->
+    <div class="modal-backdrop" id="adjust-modal">
+        <div class="modal">
+            <h3>⚖️ Корректировка остатка</h3>
+            <div id="adjust-label" style="font-weight:600;"></div>
+            <form method="post" action="/stock/adjust">
+                <input type="hidden" name="key" id="adjust-key">
+                <label for="adjust-new">Новый остаток, <span id="adjust-unit">ед.</span> (минус допустим)</label>
+                <input id="adjust-new" name="new_value" inputmode="decimal" required>
+                <label for="adjust-reason">Причина</label>
+                <input id="adjust-reason" name="reason" placeholder="например: инвентаризация, бой материала">
+                <div class="modal-actions">
+                    <button class="modal-ok" type="submit">Записать корректировку</button>
+                    <button class="modal-cancel" type="button" onclick="closeAdjust()">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+        // ---- автоподсказка «Кг на 1 единицу учёта» (кг→1, т→1000, г→0.001,
+        // м/пог.м→Вес 1 м, см→вес/100, мм→вес/1000, иначе — пустое поле) ----
+        async function onUnitChange(sel) {
+            const row = sel.closest('.grid-row');
+            const kgpuInput = row.querySelector('.kgpu-input');
+            const unit = sel.value.trim();
+            if (!unit) return;
+            try {
+                const fd = new FormData();
+                fd.append('unit', unit);
+                fd.append('weight_per_m', sel.getAttribute('data-wpm') || '');
+                const resp = await fetch('/stock/suggest', { method: 'POST', body: fd });
+                let data = null;
+                try { data = await resp.json(); } catch (e) { data = null; }
+                if (data && data.success && data.kg_per_unit !== null && data.kg_per_unit !== undefined) {
+                    kgpuInput.value = data.kg_per_unit;
+                    kgpuInput.placeholder = 'подставлено автоматически';
+                } else {
+                    kgpuInput.placeholder = 'введите вручную';
+                }
+            } catch (e) { /* сервер недоступен — ничего не меняем */ }
+        }
+
+        // ---- предпросмотр «Остаток, кг» при правке полей до сохранения ----
+        function recalcRow(row) {
+            const stock = parseFloat((row.querySelector('[name=stock_units]').value || '').replace(',', '.'));
+            const kgpu = parseFloat((row.querySelector('[name=kg_per_unit]').value || '').replace(',', '.'));
+            const cell = row.querySelector('.kg-cell');
+            if (Number.isFinite(stock) && Number.isFinite(kgpu)) {
+                const v = stock * kgpu;
+                cell.textContent = Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : v.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+                cell.classList.toggle('neg', v < 0);
+            } else {
+                cell.textContent = '—';
+                cell.classList.remove('neg');
+            }
+        }
+        document.querySelectorAll('form.grid-row').forEach(function (row) {
+            row.addEventListener('input', function () { recalcRow(row); });
+        });
+
+        // ---- модалка корректировки ----
+        function openAdjust(key, label, unit, current) {
+            document.getElementById('adjust-key').value = key;
+            document.getElementById('adjust-label').textContent = label + ' — текущий остаток: ' + (current === '' ? 'не задан' : current + ' ' + unit);
+            document.getElementById('adjust-unit').textContent = unit || 'ед.';
+            document.getElementById('adjust-new').value = current;
+            document.getElementById('adjust-reason').value = '';
+            document.getElementById('adjust-modal').classList.add('open');
+        }
+        function closeAdjust() {
+            document.getElementById('adjust-modal').classList.remove('open');
+        }
+        document.getElementById('adjust-modal').addEventListener('click', function (ev) {
+            if (ev.target === this) closeAdjust();
+        });
+    </script>
+</body>
+</html>
