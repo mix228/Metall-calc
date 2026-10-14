@@ -2,10 +2,13 @@
 
 import os
 import re
+import sys
 import math
 import json
 import csv
+import shutil
 import logging
+import tempfile
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 
@@ -14,7 +17,43 @@ import db
 app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+PROJECT_DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def is_termux():
+    """True, если приложение запущено в Termux на Android."""
+    prefix = os.environ.get("PREFIX", "")
+    return "com.termux" in prefix or "com.termux" in sys.prefix.lower()
+
+
+def get_data_dir():
+    """Каталог данных. В Termux $HOME может быть недоступен на запись
+    (без termux-setup-storage), поэтому используем private dir приложения."""
+    if is_termux():
+        d = os.environ.get("TERMUX_APP_PRIVATE_DATA_DIR")
+        if not d:
+            prefix = os.environ.get("PREFIX", "")
+            pkg = os.path.basename(os.path.dirname(prefix)) or "com.termux"
+            d = f"/data/data/{pkg}/app_private_files"
+        if os.path.isdir(d) and os.access(d, os.W_OK):
+            return os.path.join(d, "calc_data")
+    return PROJECT_DATA_DIR
+
+
+DATA_DIR = get_data_dir()
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Перенос штатных файлов из каталога проекта, если данные хранимся отдельно
+for _name in ("materials.xlsx", "materials.csv", "calc.db"):
+    _src = os.path.join(PROJECT_DATA_DIR, _name)
+    _dst = os.path.join(DATA_DIR, _name)
+    if os.path.abspath(_src) != os.path.abspath(_dst) and os.path.exists(_src) \
+            and not os.path.exists(_dst):
+        try:
+            shutil.copy2(_src, _dst)
+        except OSError:
+            logging.warning("Не удалось перенести %s в каталог данных", _name)
+
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 MATERIALS_XLSX = os.path.join(DATA_DIR, "materials.xlsx")
 MATERIALS_CSV = os.path.join(DATA_DIR, "materials.csv")
@@ -325,6 +364,22 @@ def _open_xlsx_ws():
     return wb, ws
 
 
+def _save_xlsx(wb):
+    """Атомарное сохранение: openpyxl пишет zip-файл целиком; при нехватке
+    памяти/прерывании процесса основной файл остаётся целым."""
+    fd, tmp_path = tempfile.mkstemp(dir=DATA_DIR, suffix=".xlsx.tmp")
+    os.close(fd)
+    try:
+        wb.save(tmp_path)
+        os.replace(tmp_path, MATERIALS_XLSX)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def add_material(values):
     if MATERIALS_SOURCE_KIND == "csv":
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -352,7 +407,7 @@ def add_material(values):
         fields = MATERIALS_HEADER_FIELDS or DEFAULT_HEADER_FIELDS
 
     ws.append(_row_values(values, fields, empty=None))
-    wb.save(MATERIALS_XLSX)
+    _save_xlsx(wb)
     load_materials_db()
     return "Строка добавлена"
 
@@ -371,7 +426,7 @@ def update_material(row_idx, values):
                 v = (v or "").strip() if isinstance(v, str) else v
                 v = v if v not in ("", None) else None
             ws.cell(row=row_idx, column=col).value = v
-        wb.save(MATERIALS_XLSX)
+        _save_xlsx(wb)
         load_materials_db()
         return "Строка сохранена"
 
@@ -399,7 +454,7 @@ def delete_material(row_idx):
     if MATERIALS_SOURCE_KIND == "xlsx":
         wb, ws = _open_xlsx_ws()
         ws.delete_rows(row_idx)
-        wb.save(MATERIALS_XLSX)
+        _save_xlsx(wb)
         load_materials_db()
         return "Строка удалена"
 
@@ -1009,5 +1064,48 @@ def materials_delete():
 db.init_db()
 load_materials_db()
 
+
+def _termux_keepawake():
+    """Не даём Android убить процесс сервера: Termux:API wake + wakelock."""
+    if not is_termux():
+        return
+    try:
+        import subprocess
+        # если установлен пакет termux-api — включаем режим бодрствования
+        subprocess.run(["termux-wake-lock"], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logging.info("Termux: termux-wake-lock выполнен "
+                     "(для 100% гарантии установите пакет termux-api)")
+    except (FileNotFoundError, OSError):
+        logging.info("Termux: termux-api не установлен — см. README.md "
+                     "(wakelock и автозапуск при зарядке)")
+
+
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # debug-режим (перезагрузка файлов, консоль отладки с exec()) на телефоне
+    # опасен и ест память — по умолчанию выключен. Включается явно: DEBUG=1 python app.py
+    debug = os.environ.get("DEBUG", "0") in ("1", "true", "yes", "on")
+    port = int(os.environ.get("PORT", "5000"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    _termux_keepawake()
+    print("=" * 60)
+    try:
+        ip = None
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except OSError:
+            pass
+        finally:
+            s.close()
+        addr = f"http://{ip or 'localhost'}:{port}"
+        print(f"  Сервер калькуляции: {addr}")
+        print(f"  На этом же телефоне откройте: http://localhost:{port}")
+        print("  Остановка: Ctrl+C")
+    except Exception:
+        addr = f"http://0.0.0.0:{port}"
+        print(f"  Сервер калькуляции: {addr}")
+    print("=" * 60)
+    app.run(debug=debug, host=host, port=port, threaded=True, use_reloader=debug)

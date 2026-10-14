@@ -122,6 +122,45 @@
             .grid-row { grid-template-columns: 1fr 1fr; }
             .grid-row.header { display: none; }
         }
+
+        /* --- Мобильная адаптация --- */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 14px; }
+            h1 { font-size: 21px; }
+            h2 { font-size: 17px; margin: 20px 0 8px; }
+
+            /* каждая строка справочника — карточка в одну колонку с подписями полей */
+            .grid-row { grid-template-columns: 1fr; gap: 8px; margin-bottom: 16px; }
+            .grid-row > div { position: relative; }
+            .grid-row > div::before {
+                content: attr(data-label);
+                display: block;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                color: var(--muted, #666);
+                margin-bottom: 2px;
+            }
+
+            .grid-row input {
+                width: 100%;
+                font-size: 16px; /* против автозума iOS */
+                padding: 10px;
+            }
+
+            /* числовые поля — цифровая клавиатура */
+            .grid-row input[name="density"],
+            .grid-row input[name="price_per_kg"],
+            .grid-row input[name="weight_per_m"] { inputmode: decimal; }
+
+            .grid-row button { min-height: 44px; width: 100%; margin: 4px 0; }
+            .btn-add { font-size: 15px; }
+
+            .banner { font-size: 13px; }
+            a.back { padding: 8px 0; }
+            .theme-toggle { padding: 10px 12px; }
+        }
     </style>
 </head>
 <body>
@@ -170,15 +209,15 @@
         {% for r in rows %}
         <form method="post" action="/materials/update" class="grid-row row-line">
             <input type="hidden" name="row" value="{{ r.source_row or '' }}">
-            <div><input name="profile" list="profileList" value="{{ r.profile or '' }}"></div>
-            <div><input name="material" value="{{ r.material or '' }}"></div>
-            <div><input name="grade" value="{{ r.grade or '' }}"></div>
-            <div><input name="size" value="{{ r.size or '' }}"></div>
-            <div><input name="density" value="{{ r.density if r.density is not none else '' }}"></div>
-            <div><input name="price_per_kg" value="{{ r.price_per_kg if r.price_per_kg is not none else '' }}"></div>
-            <div><input name="weight_per_m" value="{{ r.weight_per_m if r.weight_per_m is not none else '' }}"></div>
-            <div><input name="note" value="{{ r.note or '' }}"></div>
-            <div>
+            <div data-label="Тип"><input name="profile" list="profileList" value="{{ r.profile or '' }}"></div>
+            <div data-label="Материал"><input name="material" value="{{ r.material or '' }}"></div>
+            <div data-label="Марка"><input name="grade" value="{{ r.grade or '' }}"></div>
+            <div data-label="Размер"><input name="size" value="{{ r.size or '' }}"></div>
+            <div data-label="Плотность"><input name="density" value="{{ r.density if r.density is not none else '' }}"></div>
+            <div data-label="Цена/кг"><input name="price_per_kg" value="{{ r.price_per_kg if r.price_per_kg is not none else '' }}"></div>
+            <div data-label="Вес 1 м"><input name="weight_per_m" value="{{ r.weight_per_m if r.weight_per_m is not none else '' }}"></div>
+            <div data-label="Примечание"><input name="note" value="{{ r.note or '' }}"></div>
+            <div data-label="Действия">
                 <button class="btn-save" type="submit">Сохранить</button>
                 <button class="btn-del" type="submit" formaction="/materials/delete"
                         onclick="return confirm('Удалить строку справочника?')">Удалить</button>
@@ -191,15 +230,15 @@
         <h2>➕ Добавить строку</h2>
 
         <form method="post" action="/materials/add" class="grid-row">
-            <div><input name="profile" list="profileList" placeholder="круг"></div>
-            <div><input name="material" placeholder="Сталь"></div>
-            <div><input name="grade" placeholder="45"></div>
-            <div><input name="size" placeholder="60"></div>
-            <div><input name="density" placeholder="7850"></div>
-            <div><input name="price_per_kg" placeholder="85"></div>
-            <div><input name="weight_per_m" placeholder=""></div>
-            <div><input name="note" placeholder=""></div>
-            <div><button class="btn-add" type="submit">Добавить</button></div>
+            <div data-label="Тип"><input name="profile" list="profileList" placeholder="круг"></div>
+            <div data-label="Материал"><input name="material" placeholder="Сталь"></div>
+            <div data-label="Марка"><input name="grade" placeholder="45"></div>
+            <div data-label="Размер"><input name="size" placeholder="60"></div>
+            <div data-label="Плотность"><input name="density" placeholder="7850"></div>
+            <div data-label="Цена/кг"><input name="price_per_kg" placeholder="85"></div>
+            <div data-label="Вес 1 м"><input name="weight_per_m" placeholder=""></div>
+            <div data-label="Примечание"><input name="note" placeholder=""></div>
+            <div data-label="Действия"><button class="btn-add" type="submit">Добавить</button></div>
         </form>
     </div>
 </body>
