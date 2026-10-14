@@ -58,16 +58,54 @@ CREATE TABLE IF NOT EXISTS postings (
     labor_cost_total REAL,
     unit_cost REAL,
     total_cost REAL,
-    raw_text TEXT DEFAULT ''
+    raw_text TEXT DEFAULT '',
+    unit TEXT DEFAULT '',
+    required_units REAL,
+    kg_per_unit REAL,
+    stock_units_before REAL
 );
 """
 
+# Журнал складских движений (приход / списание / корректировка).
+STOCK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS stock_moves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    move_type TEXT NOT NULL,
+    row_key TEXT DEFAULT '',
+    material_label TEXT DEFAULT '',
+    unit TEXT DEFAULT '',
+    qty_units REAL,
+    qty_kg REAL,
+    stock_after REAL,
+    basis TEXT DEFAULT '',
+    posting_id INTEGER,
+    shortage INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_stock_moves_posting ON stock_moves(posting_id);
+"""
+
+
+def _ensure_columns(conn, table, cols):
+    """Мягкая миграция: добавляет отсутствующие колонки в существующую таблицу."""
+    existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for name, ddl in cols:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
 
 def init_db():
-    """Создаёт папку data и таблицу postings, если их ещё нет."""
+    """Создаёт папку data, таблицы postings и stock_moves, если их ещё нет."""
     os.makedirs(DATA_DIR, exist_ok=True)
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(SCHEMA)
+        conn.executescript(STOCK_SCHEMA)
+        _ensure_columns(conn, "postings", [
+            ("unit", "TEXT DEFAULT ''"),
+            ("required_units", "REAL"),
+            ("kg_per_unit", "REAL"),
+            ("stock_units_before", "REAL"),
+        ])
 
 
 def _fmt_dim(v):
@@ -93,8 +131,9 @@ def add_posting(data: dict) -> int:
                 created_at, drawing, shop, material_name, material_source,
                 diameter_mm, length_mm, quantity, mass_one, mass_total,
                 price_per_kg, material_cost, time_min, price_per_min,
-                labor_cost_one, labor_cost_total, unit_cost, total_cost, raw_text
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                labor_cost_one, labor_cost_total, unit_cost, total_cost, raw_text,
+                unit, required_units, kg_per_unit, stock_units_before
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -116,6 +155,10 @@ def add_posting(data: dict) -> int:
                 data.get("unit_cost"),
                 data.get("total_cost"),
                 str(data.get("raw_text") or ""),
+                str(data.get("unit") or ""),
+                data.get("required_units"),
+                data.get("kg_per_unit"),
+                data.get("stock_units_before"),
             ),
         )
         return cur.lastrowid
@@ -156,6 +199,10 @@ def fetch_history(limit=500):
             "unit_cost": r["unit_cost"],
             "total_cost": r["total_cost"],
             "raw_text": r["raw_text"],
+            "unit": r["unit"] or "",
+            "required_units": r["required_units"],
+            "kg_per_unit": r["kg_per_unit"],
+            "stock_units_before": r["stock_units_before"],
         })
     return result
 
@@ -173,3 +220,64 @@ def delete_posting(record_id: int) -> bool:
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.execute("DELETE FROM postings WHERE id = ?", (record_id,))
         return cur.rowcount > 0
+
+# ============================================================
+# ЖУРНАЛ СКЛАДСКИХ ДВИЖЕНИЙ (stock_moves)
+# ============================================================
+
+def add_stock_move(move: dict) -> int:
+    """Записывает движение в журнал. Возвращает id строки."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO stock_moves (
+                created_at, move_type, row_key, material_label, unit,
+                qty_units, qty_kg, stock_after, basis, posting_id, shortage
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                str(move.get("move_type") or ""),
+                str(move.get("row_key") or ""),
+                str(move.get("material_label") or ""),
+                str(move.get("unit") or ""),
+                move.get("qty_units"),
+                move.get("qty_kg"),
+                move.get("stock_after"),
+                str(move.get("basis") or ""),
+                move.get("posting_id"),
+                1 if move.get("shortage") else 0,
+            ),
+        )
+        return cur.lastrowid
+
+
+def fetch_stock_moves(limit=200):
+    """Последние движения (свежие первыми)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM stock_moves ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_posting(record_id: int):
+    """Возвращает запись истории по id или None."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        r = conn.execute(
+            "SELECT * FROM postings WHERE id = ?", (record_id,)
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def moves_for_posting(record_id: int):
+    """Движения журнала, привязанные к записи истории."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM stock_moves WHERE posting_id = ? ORDER BY id",
+            (record_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
