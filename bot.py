@@ -16,7 +16,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 # ============================================================
 
 # Сюда вставьте токен от BotFather
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8975004759:AAFLgNGYSX5Nr_2RCr9ENgMJz_rZ8DieXYM")
+BOT_TOKEN = os.getenv("BOT_TOKEN", ")
 
 # Временный тестовый справочник материалов.
 # Позже заменим его на импорт из Материалы.xls / базу данных.
