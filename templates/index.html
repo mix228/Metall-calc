@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Калькулятор материалов</title>
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: var(--bg, #f5f5f7);
+            color: var(--text, #1c1c1e);
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: var(--panel, #ffffff);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .top-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+
+        h1 { color: var(--text, #333); margin-bottom: 6px; }
+        h2 { color: var(--text, #333); margin: 30px 0 12px; }
+        .subtitle { color: var(--muted, #666); margin-bottom: 24px; }
+
+        label { display: block; font-weight: 600; margin-bottom: 8px; color: var(--text, #333); }
+
+        textarea, input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border, #ccc);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: monospace;
+            background: var(--input-bg, #ffffff);
+            color: var(--text, #1c1c1e);
+        }
+
+        textarea { min-height: 90px; resize: vertical; }
+
+        textarea:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent, #0a6cdf);
+        }
+
+        .field-row { margin-bottom: 15px; }
+        .fields-inline { display: flex; gap: 15px; flex-wrap: wrap; }
+        .fields-inline > div { flex: 1; min-width: 180px; }
+
+        .examples {
+            margin-top: 10px;
+            padding: 12px;
+            background: var(--stripe, rgba(0,0,0,0.03));
+            border: 1px solid var(--border, #e0e0e0);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--muted, #666);
+        }
+        .examples b { color: var(--text, #333); }
+
+        button { border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+
+        .btn-main { background: #0a6cdf; color: #fff; padding: 12px 24px; font-size: 16px; margin-top: 15px; }
+        .btn-main:hover { background: #0855b0; }
+
+        .btn-small { background: #0a6cdf; color: #fff; padding: 4px 12px; font-size: 13px; }
+
+        .theme-toggle {
+            background: var(--panel, #ffffff);
+            color: var(--text, #333);
+            border: 1px solid var(--border, #ccc);
+            padding: 8px 14px;
+            font-size: 13px;
+        }
+
+        .result { margin-top: 26px; padding: 20px; border-radius: 6px; display: none; color: var(--text, #1c1c1e); }
+        .result.success { background: rgba(40,167,69,0.16); border: 2px solid rgba(40,167,69,0.5); }
+        .result.error { background: rgba(220,53,69,0.14); border: 2px solid rgba(220,53,69,0.5); }
+        .result h3 { margin-bottom: 12px; }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .result-item { background: var(--bg, #f5f5f7); padding: 12px; border-radius: 4px; }
+        .result-item strong {
+            display: block;
+            color: var(--muted, #666);
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        .result-item span { font-size: 17px; font-weight: 600; color: var(--text, #1c1c1e); }
+        .result-item.total span { color: var(--accent, #0a6cdf); font-size: 20px; }
+
+        .actions { margin-top: 18px; display: flex; gap: 10px; }
+        .btn-confirm { background: #28a745; color: #fff; padding: 12px 20px; }
+        .btn-confirm:hover { background: #218838; }
+        .btn-cancel { background: #6c757d; color: #fff; padding: 12px 20px; }
+        .btn-cancel:hover { background: #5a6268; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border, #dddddd);
+            color: var(--text, #1c1c1e);
+        }
+        th { background: var(--stripe, rgba(0,0,0,0.03)); font-weight: 600; }
+        tbody tr:hover { background: var(--stripe, rgba(0,0,0,0.03)); }
+
+        .btn-del { background: #dc3545; color: #fff; padding: 6px 14px; font-size: 13px; }
+        .btn-del:hover { background: #c82333; }
+
+        .warning {
+            color: var(--text, #856404);
+            background: rgba(255,193,7,0.18);
+            border: 1px solid rgba(255,193,7,0.5);
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 14px;
+        }
+
+        .error-list { list-style: none; margin-left: 6px; }
+
+        .loading { display: none; text-align: center; padding: 20px; color: var(--muted, #666); }
+        .loading.active { display: block; }
+
+        a { color: var(--accent, #0a6cdf); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top-row">
+            <h1>🔧 Калькулятор материалов</h1>
+            <button id="theme-toggle" class="theme-toggle" type="button">Тёмная тема</button>
+        </div>
+        <p class="subtitle">Автоматический расчет массы, стоимости материала и работы</p>
+
+        <div class="field-row">
+            <label for="inputText">Введите описание заготовки:</label>
+            <textarea id="inputText" placeholder="Деталь РТ-100-80-01 СБ, Круг 45, 60х210, 3 шт, цех 5, время 25 мин"></textarea>
+        </div>
+
+        <div class="field-row fields-inline">
+            <div>
+                <label for="shopInput">Цех / участок</label>
+                <input type="text" id="shopInput" placeholder="5 или механический">
+            </div>
+            <div>
+                <label for="timeInput">Штучное время, мин (на 1 деталь)</label>
+                <input type="text" id="timeInput" placeholder="25">
+            </div>
+            <div>
+                <label for="priceMinInput">Стоимость минуты, руб</label>
+                <input type="text" id="priceMinInput" value="{{ settings.price_per_min }}">
+            </div>
+        </div>
+
+        <div class="examples">
+            Справочник: <b>{{ materials_info.source }}</b> · строк: <b>{{ materials_info.count }}</b>
+            <button class="btn-small" onclick="reloadMaterials()">Перезагрузить</button>
+            <a href="/materials_page" style="margin-left:10px; font-weight:600;">Открыть редактор справочника</a>
+        </div>
+
+        <div class="examples">
+            <strong>Примеры:</strong><br>
+            • Деталь РТ-100-80-01 СБ, Круг 45, 60х210, 3 шт, цех 5, время 25 мин<br>
+            • Чертёж 125, круг, сталь 45, 60 на 500, 3 шт, штучное время 30<br>
+            • Чертёж 125, круг, сталь 45, диаметр 60, длина 500, три штуки, 25 минут
+        </div>
+
+        <button class="btn-main" onclick="calculate()">Рассчитать</button>
+
+        <div class="loading" id="loading"><p>Расчет...</p></div>
+
+        <div class="result" id="result"></div>
+
+        <h2>📋 История записей</h2>
+        <table id="historyTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Время</th>
+                    <th>Чертёж</th>
+                    <th>Цех</th>
+                    <th>Материал</th>
+                    <th>Размеры</th>
+                    <th>Кол-во</th>
+                    <th>Время, мин</th>
+                    <th>Масса, кг</th>
+                    <th>Материал, руб</th>
+                    <th>Итого, руб</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="historyBody">
+                {% for record in history %}
+                <tr data-drawing="{{ record.drawing }}">
+                    <td>{{ record.id }}</td>
+                    <td>{{ record.timestamp }}</td>
+                    <td>{{ record.drawing }}</td>
+                    <td>{{ record.shop or "—" }}</td>
+                    <td>{{ record.material_name }}</td>
+                    <td>Ø{{ record.diameter_mm }} × {{ record.length_mm }}</td>
+                    <td>{{ record.quantity }}</td>
+                    <td>{{ record.time_min or "—" }}</td>
+                    <td>{{ record.mass_total }}</td>
+                    <td>{{ record.material_cost }}</td>
+                    <td>{{ record.total_cost }}</td>
+                    <td>
+                        <button class="btn-del history-delete" type="button" data-id="{{ record.id }}">Удалить</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let currentResult = null;
+
+        const LIMITS = {
+            time_min: { min: 0, max: 10000, label: "Штучное время" },
+            price_per_min: { min: 0, max: 100000, label: "Стоимость минуты" },
+        };
+
+        function parseUserNumber(s) {
+            if (s === null || s === undefined) return null;
+            const t = String(s).trim();
+            if (!t) return null;
+            if (!/^-?\d+([.,]\d+)?$/.test(t)) return NaN;
+            return Number(t.replace(",", "."));
+        }
+
+        function validateLocalFields() {
+            const errors = [];
+
+            const timeRaw = document.getElementById('timeInput').value;
+            const timeVal = parseUserNumber(timeRaw);
+            if (timeRaw.trim() && Number.isNaN(timeVal)) {
+                errors.push("Штучное время: введите число, например 25 или 25,5.");
+            } else if (timeVal !== null && (timeVal < LIMITS.time_min.min || timeVal > LIMITS.time_min.max)) {
+                errors.push(`Штучное время: допустимо от ${LIMITS.time_min.min} до ${LIMITS.time_min.max} мин.`);
+            }
+
+            const priceRaw = document.getElementById('priceMinInput').value;
+            const priceVal = parseUserNumber(priceRaw);
+            if (priceRaw.trim() && Number.isNaN(priceVal)) {
+                errors.push("Стоимость минуты: введите число, например 12 или 12,5.");
+            } else if (priceVal !== null && (priceVal < LIMITS.price_per_min.min || priceVal > LIMITS.price_per_min.max)) {
+                errors.push(`Стоимость минуты: допустимо от ${LIMITS.price_per_min.min} до ${LIMITS.price_per_min.max} руб.`);
+            }
+
+            return errors;
+        }
+
+        async function safeJson(response) {
+            let text = '';
+            try {
+                text = await response.text();
+            } catch (e) {
+                return null;
+            }
+            if (!text) return null;
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function serverUnavailableMessage() {
+            return "Сервер ответил непонятно или недоступен. Обновите страницу (F5) и попробуйте ещё раз. Если ошибка повторяется — обратитесь к администратору.";
+        }
+
+        async function calculate() {
+            const inputText = document.getElementById('inputText').value;
+            const shopInput = document.getElementById('shopInput').value;
+            const timeInput = document.getElementById('timeInput').value;
+            const priceMinInput = document.getElementById('priceMinInput').value;
+
+            const resultDiv = document.getElementById('result');
+            const loadingDiv = document.getElementById('loading');
+
+            if (!inputText.trim()) {
+                displayErrors(["Введите описание заготовки."], []);
+                return;
+            }
+
+            const localErrors = validateLocalFields();
+            if (localErrors.length) {
+                displayErrors(localErrors, []);
+                return;
+            }
+
+            loadingDiv.classList.add('active');
+            resultDiv.style.display = 'none';
+
+            try {
+                const formData = new FormData();
+                formData.append('input_text', inputText);
+                formData.append('shop', shopInput);
+                formData.append('time_min', timeInput);
+                formData.append('price_per_min', priceMinInput);
+
+                const response = await fetch('/calculate', { method: 'POST', body: formData });
+                const data = await safeJson(response);
+
+                loadingDiv.classList.remove('active');
+
+                if (!data) {
+                    displayErrors([serverUnavailableMessage()], []);
+                    return;
+                }
+
+                if (data.success) {
+                    currentResult = data.result;
+                    displayResult(data.result);
+                } else {
+                    displayErrors(
+                        (data.errors && data.errors.length) ? data.errors : ["Не удалось обработать запрос."],
+                        data.warnings || []
+                    );
+                }
+            } catch (error) {
+                loadingDiv.classList.remove('active');
+                displayErrors(["Не удалось связаться с сервером. Проверьте, что приложение запущено, и попробуйте ещё раз."], []);
+            }
+        }
+
+        function displayResult(r) {
+            const resultDiv = document.getElementById('result');
+
+            let warningsHtml = '';
+            if (r.warnings && r.warnings.length > 0) {
+                warningsHtml = '<div class="warning"><strong>Предупреждения:</strong><ul>' +
+                    r.warnings.map(w => `<li>${w}</li>`).join('') + '</ul></div>';
+            }
+
+            const timeText = (r.time_min !== null && r.time_min !== undefined) ? r.time_min + ' мин' : '—';
+
+            resultDiv.innerHTML = `
+                <h3>✅ Результат расчета</h3>
+                ${warningsHtml}
+                <div class="result-grid">
+                    <div class="result-item"><strong>Чертёж</strong><span>${r.drawing}</span></div>
+                    <div class="result-item"><strong>Цех / участок</strong><span>${r.shop || "—"}</span></div>
+                    <div class="result-item"><strong>Материал</strong><span>${r.material_name}</span></div>
+                    <div class="result-item"><strong>Размеры</strong><span>Ø${r.diameter_mm} × ${r.length_mm} мм</span></div>
+                    <div class="result-item"><strong>Количество</strong><span>${r.quantity} шт</span></div>
+                    <div class="result-item"><strong>Масса заготовки</strong><span>${r.mass_one} кг</span></div>
+                    <div class="result-item"><strong>Общая масса</strong><span>${r.mass_total} кг</span></div>
+                    <div class="result-item"><strong>Цена материала</strong><span>${r.price_per_kg} руб/кг</span></div>
+                    <div class="result-item"><strong>Стоимость материала</strong><span>${r.material_cost} руб</span></div>
+                    <div class="result-item"><strong>Штучное время</strong><span>${timeText}</span></div>
+                    <div class="result-item"><strong>Стоимость минуты</strong><span>${r.price_per_min} руб</span></div>
+                    <div class="result-item"><strong>Работа за 1 деталь</strong><span>${r.labor_cost_one} руб</span></div>
+                    <div class="result-item"><strong>Работа всего</strong><span>${r.labor_cost_total} руб</span></div>
+                    <div class="result-item"><strong>Себестоимость 1 шт</strong><span>${r.unit_cost} руб</span></div>
+                    <div class="result-item total"><strong>ИТОГО</strong><span>${r.total_cost} руб</span></div>
+                </div>
+                <div class="actions">
+                    <button class="btn-confirm" onclick="confirmRecord()">✓ Подтвердить и сохранить</button>
+                    <button class="btn-cancel" onclick="cancelRecord()">✗ Отменить</button>
+                </div>
+            `;
+
+            resultDiv.className = 'result success';
+            resultDiv.style.display = 'block';
+        }
+
+        function displayErrors(errors, warnings) {
+            const resultDiv = document.getElementById('result');
+
+            let warningsHtml = '';
+            if (warnings && warnings.length > 0) {
+                warningsHtml = '<div class="warning"><strong>Предупреждения:</strong><ul>' +
+                    warnings.map(w => `<li>${w}</li>`).join('') + '</ul></div>';
+            }
+
+            resultDiv.innerHTML = `
+                <h3>❌ Ошибки</h3>
+                ${warningsHtml}
+                <ul class="error-list">
+                    ${errors.map(e => `<li>${e}</li>`).join('')}
+                </ul>
+            `;
+
+            resultDiv.className = 'result error';
+            resultDiv.style.display = 'block';
+        }
+
+        async function confirmRecord() {
+            if (!currentResult) return;
+
+            try {
+                const response = await fetch('/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentResult),
+                });
+
+                const data = await safeJson(response);
+
+                if (!data) {
+                    alert(serverUnavailableMessage());
+                    return;
+                }
+
+                if (data.success) {
+                    alert('Запись сохранена!');
+                    location.reload();
+                } else {
+                    alert((data.errors && data.errors[0]) || "Не удалось сохранить запись.");
+                }
+            } catch (error) {
+                alert("Не удалось связаться с сервером. Проверьте, что приложение запущено.");
+            }
+        }
+
+        function cancelRecord() {
+            currentResult = null;
+            document.getElementById('result').style.display = 'none';
+        }
+
+        async function reloadMaterials() {
+            try {
+                const response = await fetch('/reload_materials', { method: 'POST' });
+                const info = await safeJson(response);
+                if (!info) {
+                    alert(serverUnavailableMessage());
+                    return;
+                }
+                alert('Справочник: ' + info.source + '\nСтрок: ' + info.count);
+                location.reload();
+            } catch (error) {
+                alert("Не удалось связаться с сервером. Проверьте, что приложение запущено.");
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll(".history-delete").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var id = btn.getAttribute("data-id");
+                    var row = btn.closest("tr");
+                    var drawing = row ? (row.getAttribute("data-drawing") || "") : "";
+                    var msg = "Удалить запись №" + id +
+                        (drawing ? " (чертёж " + drawing + ")" : "") +
+                        " из истории и из базы данных?\nДействие необратимо.";
+                    if (!confirm(msg)) return;
+
+                    fetch("/delete", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: parseInt(id, 10) })
+                    }).then(function (r) { return r.json(); }).then(function (j) {
+                        if (j.success) {
+                            if (row) row.remove();
+                        } else {
+                            alert((j.errors && j.errors[0]) || "Не удалось удалить запись.");
+                        }
+                    }).catch(function () {
+                        alert("Не удалось удалить запись. Проверьте соединение.");
+                    });
+                });
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        .input-section { margin-bottom: 30px; }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        textarea, input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        textarea { min-height: 90px; resize: vertical; }
+
+        textarea:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .field-row { margin-bottom: 15px; }
+
+        .fields-inline { display: flex; gap: 15px; flex-wrap: wrap; }
+        .fields-inline > div { flex: 1; min-width: 180px; }
+
+        .examples {
+            margin-top: 10px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+
+        button:hover { background: #0056b3; }
+
+        .btn-small {
+            padding: 4px 12px;
+            font-size: 13px;
+            margin-top: 0;
+            margin-left: 10px;
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .result.success { background: #d4edda; border: 2px solid #c3e6cb; }
+        .result.error { background: #f8d7da; border: 2px solid #f5c6cb; }
+        .result h3 { margin-bottom: 15px; }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .result-item { background: white; padding: 12px; border-radius: 4px; }
+
+        .result-item strong {
+            display: block;
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .result-item span { font-size: 17px; font-weight: 600; color: #333; }
+        .result-item.total span { color: #007bff; font-size: 20px; }
+
+        .actions { margin-top: 20px; display: flex; gap: 10px; }
+        .btn-confirm { background: #28a745; }
+        .btn-confirm:hover { background: #218838; }
+        .btn-cancel { background: #dc3545; }
+        .btn-cancel:hover { background: #c82333; }
+
+        .history { margin-top: 40px; }
+        .history h2 { margin-bottom: 20px; color: #333; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #f8f9fa; font-weight: 600; color: #333; }
+        tr:hover { background: #f8f9fa; }
+
+        .warning {
+            color: #856404;
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .error-list { list-style: none; margin-left: 20px; }
+
+        .loading { display: none; text-align: center; padding: 20px; }
+        .loading.active { display: block; }

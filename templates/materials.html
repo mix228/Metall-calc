@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Справочник материалов</title>
+    <script src="{{ url_for('static', filename='theme.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: var(--bg, #f5f5f7);
+            color: var(--text, #1c1c1e);
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: var(--panel, #ffffff);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        h1 { color: var(--text, #333); }
+        h2 { color: var(--text, #333); margin: 30px 0 10px; }
+        .subtitle { color: var(--muted, #666); margin-bottom: 20px; }
+
+        a.back {
+            color: var(--accent, #0a6cdf);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .banner {
+            padding: 12px;
+            border-radius: 6px;
+            background: var(--stripe, #f8f9fa);
+            color: var(--muted, #555);
+            border: 1px solid var(--border, #e0e0e0);
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .banner.msg {
+            background: rgba(40, 167, 69, 0.15);
+            color: var(--text, #155724);
+            border-color: rgba(40, 167, 69, 0.4);
+        }
+
+        .grid-row {
+            display: grid;
+            grid-template-columns: 110px 110px 90px 130px 90px 90px 90px 130px 170px;
+            gap: 6px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .grid-row.header {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text, #333);
+        }
+
+        .grid-row input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border, #ccc);
+            border-radius: 4px;
+            font-size: 13px;
+            background: var(--input-bg, #ffffff);
+            color: var(--text, #1c1c1e);
+        }
+
+        .grid-row button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 4px;
+            color: #ffffff;
+        }
+
+        .btn-save { background: #28a745; }
+        .btn-save:hover { background: #218838; }
+        .btn-del { background: #dc3545; }
+        .btn-del:hover { background: #c82333; }
+        .btn-add { background: #0a6cdf; padding: 12px 24px; font-size: 15px; }
+        .btn-add:hover { background: #0855b0; }
+
+        .row-line {
+            border-bottom: 1px solid var(--border, #eeeeee);
+            padding-bottom: 6px;
+        }
+
+        .theme-toggle {
+            background: var(--panel, #ffffff);
+            color: var(--text, #333);
+            border: 1px solid var(--border, #ccc);
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        @media (max-width: 1000px) {
+            .grid-row { grid-template-columns: 1fr 1fr; }
+            .grid-row.header { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top-row">
+            <a class="back" href="/">← Назад к калькулятору</a>
+            <button id="theme-toggle" class="theme-toggle" type="button">Тёмная тема</button>
+        </div>
+
+        <h1>📚 Справочник материалов</h1>
+        <p class="subtitle">Редактирование без Excel: правки сохраняются прямо в файл справочника</p>
+
+        <div class="banner">
+            Источник: <b>{{ info.source }}</b> · строк: <b>{{ info.count }}</b>
+            {% if source_kind == "none" %}
+                <br>Файл справочника не найден. При добавлении первой строки будет создан <b>data/materials.xlsx</b>.
+            {% endif %}
+        </div>
+
+        {% if msg %}
+        <div class="banner msg">{{ msg }}</div>
+        {% endif %}
+
+        <div class="grid-row header">
+            <div>Тип</div>
+            <div>Материал</div>
+            <div>Марка</div>
+            <div>Размер</div>
+            <div>Плотность</div>
+            <div>Цена/кг</div>
+            <div>Вес 1 м</div>
+            <div>Примечание</div>
+            <div>Действия</div>
+        </div>
+
+        <datalist id="profileList">
+            <option value="круг">
+            <option value="лист">
+            <option value="труба">
+            <option value="квадрат">
+            <option value="уголок">
+            <option value="швеллер">
+            <option value="шестигранник">
+        </datalist>
+
+        {% for r in rows %}
+        <form method="post" action="/materials/update" class="grid-row row-line">
+            <input type="hidden" name="row" value="{{ r.source_row or '' }}">
+            <div><input name="profile" list="profileList" value="{{ r.profile or '' }}"></div>
+            <div><input name="material" value="{{ r.material or '' }}"></div>
+            <div><input name="grade" value="{{ r.grade or '' }}"></div>
+            <div><input name="size" value="{{ r.size or '' }}"></div>
+            <div><input name="density" value="{{ r.density if r.density is not none else '' }}"></div>
+            <div><input name="price_per_kg" value="{{ r.price_per_kg if r.price_per_kg is not none else '' }}"></div>
+            <div><input name="weight_per_m" value="{{ r.weight_per_m if r.weight_per_m is not none else '' }}"></div>
+            <div><input name="note" value="{{ r.note or '' }}"></div>
+            <div>
+                <button class="btn-save" type="submit">Сохранить</button>
+                <button class="btn-del" type="submit" formaction="/materials/delete"
+                        onclick="return confirm('Удалить строку справочника?')">Удалить</button>
+            </div>
+        </form>
+        {% else %}
+        <div class="banner">Строк пока нет. Добавьте первую ниже.</div>
+        {% endfor %}
+
+        <h2>➕ Добавить строку</h2>
+
+        <form method="post" action="/materials/add" class="grid-row">
+            <div><input name="profile" list="profileList" placeholder="круг"></div>
+            <div><input name="material" placeholder="Сталь"></div>
+            <div><input name="grade" placeholder="45"></div>
+            <div><input name="size" placeholder="60"></div>
+            <div><input name="density" placeholder="7850"></div>
+            <div><input name="price_per_kg" placeholder="85"></div>
+            <div><input name="weight_per_m" placeholder=""></div>
+            <div><input name="note" placeholder=""></div>
+            <div><button class="btn-add" type="submit">Добавить</button></div>
+        </form>
+    </div>
+</body>
+</html>

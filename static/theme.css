@@ -1,0 +1,87 @@
+/*
+Тёмная тема: переопределения поверх style.css.
+Переключается атрибутом data-theme на <html>.
+*/
+
+:root {
+    --bg: #f5f5f7;
+    --panel: #ffffff;
+    --text: #1c1c1e;
+    --muted: #6e6e73;
+    --border: #d8d8dc;
+    --stripe: rgba(0, 0, 0, 0.03);
+    --input-bg: #ffffff;
+    --accent: #0a6cdf;
+}
+
+[data-theme="dark"] {
+    --bg: #181825;
+    --panel: #252536;
+    --text: #e0e0e8;
+    --muted: #9a9aa8;
+    --border: #3a3a4c;
+    --stripe: rgba(255, 255, 255, 0.04);
+    --input-bg: #2a2a3c;
+    --accent: #4da3ff;
+}
+
+[data-theme="dark"] body {
+    background: var(--bg);
+    color: var(--text);
+}
+
+[data-theme="dark"] .panel,
+[data-theme="dark"] .card,
+[data-theme="dark"] .header,
+[data-theme="dark"] .config-table,
+[data-theme="dark"] .materials-table,
+[data-theme="dark"] .history-table,
+[data-theme="dark"] .result-table {
+    background: var(--panel);
+    color: var(--text);
+}
+
+[data-theme="dark"] table,
+[data-theme="dark"] th,
+[data-theme="dark"] td {
+    border-color: var(--border);
+    color: var(--text);
+}
+
+[data-theme="dark"] tbody tr:nth-child(even) {
+    background: var(--stripe);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+    background: var(--input-bg);
+    color: var(--text);
+    border-color: var(--border);
+}
+
+[data-theme="dark"] .btn {
+    background: var(--panel);
+    color: var(--text);
+    border-color: var(--border);
+}
+
+[data-theme="dark"] .btn-primary {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+[data-theme="dark"] .btn-danger {
+    background: #b0343c;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .muted,
+[data-theme="dark"] .warnings,
+[data-theme="dark"] .error-list {
+    color: var(--muted);
+}
+
+[data-theme="dark"] a {
+    color: var(--accent);
+}
