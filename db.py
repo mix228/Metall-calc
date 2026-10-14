@@ -5,11 +5,35 @@
 """
 
 import os
+import sys
 import sqlite3
 from datetime import datetime
 
+
+def is_termux():
+    """True, если приложение запущено в Termux на Android."""
+    prefix = os.environ.get("PREFIX", "")
+    return "com.termux" in prefix or "com.termux" in sys.prefix.lower()
+
+
+def get_data_dir():
+    """Каталог данных (совпадает с логикой app.py). В Termux $HOME может быть
+    недоступен на запись без termux-setup-storage — берём private dir."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if is_termux():
+        d = os.environ.get("TERMUX_APP_PRIVATE_DATA_DIR")
+        if not d:
+            prefix = os.environ.get("PREFIX", "")
+            pkg = os.path.basename(os.path.dirname(prefix)) or "com.termux"
+            d = f"/data/data/{pkg}/app_private_files"
+        if os.path.isdir(d) and os.access(d, os.W_OK):
+            return os.path.join(d, "calc_data")
+    return os.path.join(base_dir, "data")
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = get_data_dir()
+os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, "calc.db")
 
 
