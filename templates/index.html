@@ -140,6 +140,54 @@
         .loading.active { display: block; }
 
         a { color: var(--accent, #0a6cdf); }
+
+        /* --- Мобильная адаптация --- */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 16px; border-radius: 10px; }
+            h1 { font-size: 22px; }
+            h2 { font-size: 18px; margin: 22px 0 10px; }
+            .subtitle { margin-bottom: 16px; font-size: 14px; }
+
+            /* крупные шрифты против автозума iOS (срабатывает при font-size < 16px) */
+            textarea, input[type="text"] { font-size: 16px; padding: 12px; }
+            textarea { min-height: 80px; }
+
+            /* поля в одну колонку */
+            .fields-inline { flex-direction: column; gap: 10px; }
+            .fields-inline > div { min-width: 0; width: 100%; }
+
+            /* кнопки — не меньше 44px по стандарту touch-целей */
+            button { min-height: 44px; }
+            .btn-main { width: 100%; font-size: 16px; }
+            .actions { flex-direction: column; gap: 8px; }
+            .actions button { width: 100%; }
+            .btn-small { padding: 10px 14px; }
+            .theme-toggle { padding: 10px 12px; }
+
+            .examples { font-size: 13px; line-height: 1.5; }
+            .examples .btn-small, .examples a { display: inline-block; margin-top: 6px; }
+
+            /* таблица истории — горизонтальный скролл вместо обрезки/наложения */
+            .table-wrap {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                border: 1px solid var(--border, #ddd);
+                border-radius: 6px;
+            }
+            table { font-size: 13px; min-width: 760px; }
+            th, td { padding: 8px; white-space: nowrap; }
+            .btn-del { padding: 8px 12px; }
+
+            .result { padding: 14px; }
+            .result-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .result-item span { font-size: 15px; }
+            .result-item.total span { font-size: 17px; }
+        }
+
+        @media (max-width: 420px) {
+            .result-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -158,15 +206,15 @@
         <div class="field-row fields-inline">
             <div>
                 <label for="shopInput">Цех / участок</label>
-                <input type="text" id="shopInput" placeholder="5 или механический">
+                <input type="text" id="shopInput" inputmode="text" autocomplete="off" placeholder="5 или механический">
             </div>
             <div>
                 <label for="timeInput">Штучное время, мин (на 1 деталь)</label>
-                <input type="text" id="timeInput" placeholder="25">
+                <input type="text" id="timeInput" inputmode="decimal" autocomplete="off" placeholder="25">
             </div>
             <div>
                 <label for="priceMinInput">Стоимость минуты, руб</label>
-                <input type="text" id="priceMinInput" value="{{ settings.price_per_min }}">
+                <input type="text" id="priceMinInput" inputmode="decimal" autocomplete="off" value="{{ settings.price_per_min }}">
             </div>
         </div>
 
@@ -190,6 +238,7 @@
         <div class="result" id="result"></div>
 
         <h2>📋 История записей</h2>
+        <div class="table-wrap">
         <table id="historyTable">
             <thead>
                 <tr>
@@ -228,6 +277,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 
     <script>
