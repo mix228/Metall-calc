@@ -186,12 +186,15 @@ STOCK_FIELDS = ["unit", "stock_units", "kg_per_unit", "invoice"]
 
 PROFILE_SYNONYMS = {
     "круг": "round", "круглый": "round", "пруток": "round",
+    "round": "round", "rod": "round",
     "лист": "sheet", "пластина": "sheet", "плита": "sheet",
+    "sheet": "sheet", "plate": "sheet",
     "труба": "pipe", "трубка": "pipe",
-    "квадрат": "square",
-    "уголок": "angle",
-    "швеллер": "channel",
-    "шестигранник": "hex",
+    "pipe": "pipe", "tube": "pipe",
+    "квадрат": "square", "square": "square",
+    "уголок": "angle", "angle": "angle",
+    "швеллер": "channel", "channel": "channel",
+    "шестигранник": "hex", "hex": "hex", "hexagon": "hex",
 }
 
 HEADER_MAP = {
@@ -392,54 +395,146 @@ def load_materials_db():
     return MATERIALS_INFO
 
 
-def find_material(profile_type, material_name, dims):
+PROFILE_LABELS_RU = {
+    "round": "круг", "sheet": "лист", "pipe": "труба", "square": "квадрат",
+    "angle": "уголок", "channel": "швеллер", "hex": "шестигранник",
+}
+
+
+def _profile_label(p):
+    return PROFILE_LABELS_RU.get(p, p or "")
+
+
+def _numbers_in(text):
+    """Все числа строки размера как десятичные значения ('60х500' -> {60, 500})."""
+    out = set()
+    for m in re.finditer(r"\d+(?:[.,]\d+)?", str(text or "").replace(",", ".")):
+        try:
+            out.add(float(m.group(0)))
+        except ValueError:
+            pass
+    return out
+
+
+def _grade_matches(r, mat_low):
+    """Совпадение марки/названия материала с текстом запроса (с защитой от
+    ложных вхождений: 'сталь 3' не должна матчить 'сталь 30')."""
+    parts = [p for p in ((r.get("grade") or ""), (r.get("material") or "")) if p]
+    for part in parts:
+        pl = re.sub(r"\s+", " ", part.lower().strip())
+        if pl == mat_low:
+            return True
+        if mat_low in pl or pl in mat_low:
+            if re.search(r"\d", mat_low):
+                rest = pl.replace(mat_low, " ") if mat_low in pl else \
+                       mat_low.replace(pl, " ")
+                if _numbers_in(rest) & _numbers_in(mat_low):
+                    continue  # остаток содержит то же число — другое значение марки
+            return True
+    return False
+
+
+def _row_to_material(r):
+    return {
+        "name": re.sub(r"\s+", " ", f"{r['material']} {r['grade']}".strip()),
+        "density": r["density"],
+        "price_per_kg": r["price_per_kg"],
+        "weight_per_m": r["weight_per_m"],
+        "size": r["size"],
+        "source": MATERIALS_INFO["source"],
+        "profile": r.get("profile"),
+        # складской контур (из тех же ячеек файла справочника)
+        "row_key": row_key(r),
+        "unit": r.get("unit") or "",
+        "stock_units": r.get("stock_units"),
+        "kg_per_unit": r.get("kg_per_unit"),
+        "invoice": r.get("invoice") or "",
+    }
+
+
+def weight_per_m_is_missing(material):
+    """Если вес 1 м заполнен — он и задаёт массу, плотность не обязательна."""
+    return material.get("weight_per_m") is None
+
+
+def _rows_list_for_error(rows):
+    shown = []
+    for r in rows[:8]:
+        label = re.sub(r"\s+", " ", f"{r['material']} {r['grade']}".strip())
+        size = f", размер {r['size']}" if r.get("size") else ""
+        shown.append(f"«{label}{size}»")
+    tail = "…" if len(rows) > 8 else ""
+    return "; ".join(shown) + tail
+
+
+def find_material(profile_type, material_name, dims=None):
+    """Подбор строки справочника.
+
+    Кандидаты — строки подходящего профиля. Если в тексте есть марка
+    («сталь 45») — сужаем по ней. Если марки нет (или она не найдена) —
+    берём строку, у которой все введённые числа встречаются в ячейке
+    «Размер». Ровно один кандидат — берём; ноль или несколько — ошибка
+    со списком кандидатов."""
     mat_low = re.sub(r"\s+", " ", (material_name or "").lower().strip())
 
     if MATERIALS_DB:
-        candidates = []
-        for r in MATERIALS_DB:
-            if r["profile"] and profile_type and r["profile"] != profile_type:
-                continue
+        by_profile = [r for r in MATERIALS_DB
+                      if not (profile_type and r["profile"]
+                              and r["profile"] != profile_type)]
+        pool = by_profile if by_profile else list(MATERIALS_DB)
 
-            key = re.sub(r"\s+", " ", f"{r['material']} {r['grade']}".lower().strip())
+        matched = [r for r in pool if mat_low and _grade_matches(r, mat_low)]
 
-            if key == mat_low or mat_low in key or key in mat_low:
-                candidates.append(r)
-            elif r["grade"] and r["grade"].lower() == mat_low:
-                candidates.append(r)
+        wanted = {v for v in (dims or {}).values()
+                  if isinstance(v, (int, float)) and v is not None}
 
-        if candidates:
-            def size_score(r):
-                s = (r["size"] or "").replace(",", ".").lower()
-                if not s or not dims:
-                    return 0
-                score = 0
-                for v in dims.values():
-                    if v is None:
-                        continue
-                    if f"{v:g}" in s:
-                        score += 1
-                return score
+        chosen = None
+        reason = None
+        if len(matched) == 1:
+            chosen = matched[0]
+        else:
+            base = matched if matched else pool
+            if matched and len(base) > 1 and wanted:
+                exact = [r for r in base
+                         if all(any(abs(w - n) < 1e-9 for n in _numbers_in(r["size"]))
+                                for w in wanted)]
+                if len(exact) == 1:
+                    chosen = exact[0]
+            if chosen is None and not matched and wanted:
+                exact = [r for r in base
+                         if all(any(abs(w - n) < 1e-9 for n in _numbers_in(r["size"]))
+                                for w in wanted)]
+                if len(exact) == 1:
+                    chosen = exact[0]
+                elif len(exact) > 1:
+                    reason = ("несколько строк справочника подходят по размеру "
+                              f"(все числа {', '.join(fmt_num(w) for w in sorted(wanted))} "
+                              f"есть в «Размер»): {_rows_list_for_error(exact)}")
+                else:
+                    reason = ("марка не указана и ни одна строка справочника не "
+                              "содержит все введённые числа в ячейке «Размер»")
 
-            candidates.sort(key=size_score, reverse=True)
-            r = candidates[0]
+        if chosen is not None:
+            return _row_to_material(chosen), None
 
-            return {
-                "name": re.sub(r"\s+", " ", f"{r['material']} {r['grade']}".strip()),
-                "density": r["density"],
-                "price_per_kg": r["price_per_kg"],
-                "weight_per_m": r["weight_per_m"],
-                "size": r["size"],
-                "source": MATERIALS_INFO["source"],
-                # складской контур (из тех же ячеек файла справочника)
-                "row_key": row_key(r),
-                "unit": r.get("unit") or "",
-                "stock_units": r.get("stock_units"),
-                "kg_per_unit": r.get("kg_per_unit"),
-                "invoice": r.get("invoice") or "",
-            }, None
-
-        return None, f"Материал '{material_name}' не найден в справочнике ({MATERIALS_INFO['source']})."
+        plabel = _profile_label(profile_type)
+        if reason:
+            err = (f"Не удалось однозначно выбрать материал в справочнике "
+                   f"({MATERIALS_INFO['source']}): {reason}. "
+                   f"Уточните марку в тексте. CANDIDATES::{_rows_list_for_error(base)}")
+        elif matched:
+            err = (f"В справочнике ({MATERIALS_INFO['source']}) несколько строк "
+                   f"подходят под профиль «{plabel}» и марку «{material_name}»: "
+                   f"{_rows_list_for_error(matched)}. Уточните размер.")
+        elif mat_low:
+            err = (f"Материал '{material_name}' не найден в справочнике "
+                   f"({MATERIALS_INFO['source']}) для профиля «{plabel}». "
+                   f"CANDIDATES::{_rows_list_for_error(pool)}")
+        else:
+            err = (f"Марка не указана и размер не найден в ячейке «Размер» "
+                   f"справочника ({MATERIALS_INFO['source']}) для профиля «{plabel}». "
+                   f"CANDIDATES::{_rows_list_for_error(pool)}")
+        return None, err
 
     m = MATERIALS.get(mat_low)
     if m:
@@ -964,7 +1059,8 @@ DIMENSION_IN_SEGMENT_RE = re.compile(r"\d\s*(?:х|x|×|\*|на)\s*\d", re.IGNORE
 
 SKIP_WORDS = [
     "круг", "пруток", "круглый", "лист", "труба", "квадрат",
-    "уголок", "швеллер", "сталь", "ст.", "шт",
+    "уголок", "швеллер", "шестигранник", "сталь", "ст.", "шт",
+    "время", "мин", "цех",
 ]
 
 
@@ -1011,24 +1107,106 @@ def extract_drawing(text: str):
     return None, clean
 
 
+PROFILE_WORDS = (
+    r"(?:круг|пруток|круглый|"
+    r"лист|пластина|плита|"
+    r"труба|трубка|"
+    r"квадрат|уголок|швеллер|шестигранник)"
+)
+
+
 def parse_profile_type(text: str):
-    if re.search(r"\b(?:круг|пруток|круглый)\b", text):
-        return "round"
+    """Определяет профиль заготовки по тексту (RU + EN)."""
+    t = text.lower()
+    for word, prof in PROFILE_SYNONYMS.items():
+        if re.search(r"\b" + re.escape(word) + r"\b", t):
+            return prof
+    # английские названия прямо в тексте (round/rod, sheet, pipe/tube...)
+    en_map = [
+        (("round", "rod"), "round"),
+        (("sheet", "plate"), "sheet"),
+        (("pipe", "tube"), "pipe"),
+        (("square",), "square"),
+        (("angle",), "angle"),
+        (("channel",), "channel"),
+        (("hex", "hexagon"), "hex"),
+    ]
+    for words, prof in en_map:
+        for w in words:
+            if re.search(r"\b" + w + r"\b", t):
+                return prof
     return None
 
 
+GRADE_RE = re.compile(
+    r"(?:сталь|ст\.)?\s*"
+    r"(St\d+(?:\.\d)?G\d+|0?[Xx]\d{2}(?:\d)?|1?\d{1,2}X\d{1,2}(?:Ni|Cr|Mo|Cu)?\d*"
+    r"|[A-Za-zА-Яа-я][0-9A-Za-zА-Яа-я\-]{1,14}"
+    r"|0[0-9]{1,2}[A-Za-zА-Яа-я]{0,6}|[1-9][0-9]{0,2}[A-Za-zА-Яа-я]{0,6})"
+    r"(?:\s*[-—]\s*(?:Г[OО]?Д|Ш|У|КП|ПС|сп|пс)\b)?",
+    re.IGNORECASE,
+)
+
+KNOWN_MATERIAL_WORDS = (
+    "капролон|текстолит|гетинакс|фторопласт|полиамид|дюралюмин|дюраль|"
+    "алюминий|латунь|бронза|медь|нержавейка|чугун|титан|дюрал"
+)
+
+
+def _clean_grade(s: str):
+    s = re.sub(r"\s+", " ", (s or "").strip())
+    return s
+
+
+NON_GRADE_WORDS = (
+    r"(?:шт\.?|штук|штуки|мин|минут|минуты|мм|см|метр\w*|время|цех|участок|"
+    r"круг|пруток|лист|труба|трубка|квадрат|уголок|швеллер|шестигранник|"
+    r"заготовка|размер|длиной|диаметр|стенка|сталь)"
+)
+
+
 def parse_material(text: str):
-    m = re.search(r"\b(капролон|текстолит|алюминий|латунь|медь|нержавейка)\b", text)
+    """Ищет марку материала в тексте («сталь 45», «Ст3сп», «09Г2С»,
+    «алюминий Д16», «круг 45, 60х500» и т.п.)."""
+    m = re.search(r"\b(" + KNOWN_MATERIAL_WORDS + r")\b", text)
     if m:
-        return m.group(1)
+        base = m.group(1)
+        rest = text[m.end():]
+        g = re.match(r"\s*[-–—]?\s*([0-9А-Яа-za-z]+(?:\s*[A-ZА-Я]{1,3})?)", rest)
+        if g and not re.match(r"(?:шт|х|x|×|на\b|см|мм|м\b|время|мин)",
+                              g.group(1), re.IGNORECASE):
+            return f"{base} {g.group(1)}"
+        return base
 
-    m = re.search(r"\b(?:сталь|ст\.?)\s*([0-9]{1,3}|[0-9а-з]+)", text)
+    m = re.search(r"\b(?:сталь|ст\.)\s*([0-9]{1,3}[A-Za-zА-Яа-я]{0,6}|"
+                  r"[0-9А-Яа-za-z]+(?:-[A-Za-zА-Яа-я]{2,4})?)",
+                  text, re.IGNORECASE)
     if m:
-        return f"сталь {m.group(1)}"
+        return _clean_grade(f"сталь {m.group(1)}")
 
-    m = re.search(r"\bкруг\s+([0-9]{1,3})(?!\s*(?:х|x|×|\*|на|–|-))\b", text)
+    # «круг 45, 60х500» — голое число сразу после слова профиля = марка (сталь N)
+    m = re.search(r"(?:круг|пруток|квадрат|шестигранник|лист|труба|уголок|швеллер)"
+                  r"\s+((?!-)\d+(?:[.,]\d+)?|[0-9][0-9А-Яа-я]{1,8}|[А-Яа-za-z][0-9А-Яа-za-z\-]{1,10})",
+                  text, re.IGNORECASE)
     if m:
-        return f"сталь {m.group(1)}"
+        tok = m.group(1).strip()
+        if re.fullmatch(r"(?:[0-9]+|[0-9][0-9А-Яа-я]+|[А-Яа-za-z][0-9А-Яа-za-z\-]+)", tok) \
+                and not re.match(NON_GRADE_WORDS, tok, re.IGNORECASE):
+            if re.fullmatch(r"[0-9]+", tok):
+                return f"сталь {tok}"
+            return _clean_grade(tok)
+
+    # общее совпадение с известными строками справочника (марка/материал)
+    best = None
+    for r in MATERIALS_DB:
+        for part in ((r.get("grade") or ""), (r.get("material") or "")):
+            p = re.sub(r"\s+", " ", part.lower().strip())
+            if len(p) >= 2 and re.search(r"(?<![\wа-яё-])" + re.escape(p) +
+                                         r"(?![\wа-яё-])", text):
+                if best is None or len(p) > len(best):
+                    best = p
+    if best:
+        return best
 
     return None
 
@@ -1088,39 +1266,196 @@ def to_mm(value, unit=None):
     return val
 
 
-def parse_round_dimensions(text: str):
-    dims = {}
+NUM = r"\d+(?:[.,]\d+)?"
 
-    pair = re.search(
-        r"(\d+(?:[.,]\d+)?)\s*(мм|см|м|mm|m)?\s*(?:х|x|×|\*|на)\s*"
-        r"(\d+(?:[.,]\d+)?)\s*(мм|см|м|mm|m)?",
-        text,
-        flags=re.IGNORECASE,
-    )
 
-    if pair:
-        dims["diameter_mm"] = to_mm(pair.group(1), pair.group(2))
-        dims["length_mm"] = to_mm(pair.group(3), pair.group(4))
+def _num(s):
+    return float(str(s).replace(",", "."))
 
-    m = re.search(
-        r"(?:диаметр|диам\.?|d|∅|ø)\s*:?\s*(\d+(?:[.,]\d+)?)\s*(мм|см|м|mm|m)?",
-        text, flags=re.IGNORECASE,
-    )
-    if m:
-        dims["diameter_mm"] = to_mm(m.group(1), m.group(2))
 
-    m = re.search(
-        r"(?:длина|дл\.?|l)\s*:?\s*(\d+(?:[.,]\d+)?)\s*(мм|см|м|mm|m)?",
-        text, flags=re.IGNORECASE,
-    )
-    if m:
-        dims["length_mm"] = to_mm(m.group(1), m.group(2))
+def _strip_quantity_time(text):
+    """Убирает из текста конструкции количества («3 шт», «три штуки») и
+    времени («время 25», «25 мин»), чтобы их числа не попадали в размеры."""
+    t = re.sub(
+        r"\b(?:[0-9]+|один|одна|одно|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять)"
+        r"\s*(?:шт\.?|штук|штуки)\b", " ", text, flags=re.IGNORECASE)
+    t = re.sub(r"(?:штучное\s*время|шт\s*время|нормо-?время|время)\s*:?\s*"
+               r"\d+(?:[.,]\d+)?\s*(?:мин|мин\.|минут|минуты)?", " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\b\d+(?:[.,]\d+)?\s*(?:мин|мин\.|минут|минуты)\b", " ", t, flags=re.IGNORECASE)
+    return t
 
-    if "length_mm" not in dims:
-        m = re.search(r"\b(\d+(?:[.,]\d+)?)\s*(?:м|метр|метра|метров)\b", text, flags=re.IGNORECASE)
+
+def find_dim_numbers(text: str):
+    """Все «размерные» числа текста в мм: пары/тройки через х, а также
+    явные подписи (диаметр/длина/сторона/толщина стенки и т.п.)."""
+    text = _strip_quantity_time(text)
+    vals = []
+
+    seq = re.search(
+        r"(" + NUM + r")\s*(?:мм|см|м|mm|m)?\s*(?:х|x|×|\*|на)\s*"
+        r"(" + NUM + r")\s*(?:мм|см|м|mm|m)?"
+        r"(?:\s*(?:х|x|×|\*|на)\s*(" + NUM + r")\s*(?:мм|см|м|mm|m)?)?",
+        text, flags=re.IGNORECASE)
+    if seq:
+        for i in (1, 2, 3):
+            g = seq.group(i)
+            if g is not None:
+                vals.append(_num(g))
+
+    labels = [
+        (r"(?:диаметр|диам\.?|∅|ø)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:длина|дл\.?)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:сторона|стор\.?)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:под\s+ключ)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:толщина\s+стенки|стенка|толщ\.?\s*стенки?)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:толщина)\s*:?\s*(" + NUM + r")", 1),
+        (r"(?:ширина|шир\.?)\s*:?\s*(" + NUM + r")", 1),
+    ]
+    labeled = []
+    for pat, _ in labels:
+        m = re.search(pat, text, flags=re.IGNORECASE)
         if m:
-            dims["length_mm"] = to_mm(m.group(1), "м")
+            labeled.append(_num(m.group(1)))
 
+    if len(labeled) >= 2 and not vals:
+        vals = labeled
+
+    # «6 м», «1,5 метра» — длина в метрах (если ещё не найдена)
+    if len(vals) < 2:
+        m = re.search(r"\b(" + NUM + r")\s*(?:м|метр|метра|метров)\b", text,
+                      flags=re.IGNORECASE)
+        if m:
+            vals.append(_num(m.group(1)) * 1000.0)
+
+    return vals
+
+
+def parse_dimensions(profile_type, text: str):
+    """Разбирает размеры по профилю. Возвращает (dims, error)."""
+    nums = find_dim_numbers(text)
+
+    def uniq(seq):
+        out = []
+        for v in seq:
+            if not any(abs(v - u) < 1e-9 for u in out):
+                out.append(v)
+        return out
+
+    u = uniq(nums)
+
+    if profile_type in ("round", "hex"):
+        if len(u) < 2:
+            return {}, f"Нужны два размера: диаметр и длина (например 60х500)." \
+                if profile_type == "round" else \
+                f"Нужны два размера: размер под ключ и длина (например 30х500)."
+        key = "diameter_mm" if profile_type == "round" else "across_flats_mm"
+        return {key: u[0], "length_mm": u[1]}, None
+
+    if profile_type == "square":
+        if len(u) < 2:
+            return {}, "Нужны два размера: сторона и длина (например 100х500)."
+        return {"side_mm": u[0], "length_mm": u[1]}, None
+
+    if profile_type == "sheet":
+        if len(u) < 3:
+            return {}, "Нужны три размера: толщина×ширина×длина (например 3х1000х2000)."
+        return {"thickness_mm": u[0], "width_mm": u[1], "length_mm": u[2]}, None
+
+    if profile_type == "pipe":
+        if len(u) >= 3:
+            return {"outer_mm": u[0], "wall_mm": u[1], "length_mm": u[2]}, None
+        if len(u) == 2:
+            return {"outer_mm": u[0], "length_mm": u[1]}, None
+        return {}, "Нужны размеры трубы: DхtхL (например 57х3.5х6000) либо DхL — тогда стенка возьмётся из справочника."
+
+    if profile_type in ("angle", "channel"):
+        if len(u) < 2:
+            return {}, ("Масса для профиля «" + _profile_label(profile_type) +
+                        "» считается только по весу 1 м из справочника; "
+                        "нужна длина заготовки (например 40х1000).")
+        return {"length_mm": u[-1]}, None
+
+    # профиль не определён — пробуем круг
+    if len(u) >= 2:
+        return {"diameter_mm": u[0], "length_mm": u[1]}, None
+    return {}, None
+
+
+def calc_mass_kg(profile_type, dims, density, weight_per_m=None):
+    """Масса одной заготовки, кг. Если задан weight_per_m — L·weight_per_m."""
+    L = dims.get("length_mm")
+    if L is None:
+        return None
+    if weight_per_m is not None:
+        return (L / 1000.0) * weight_per_m
+    if density is None:
+        return None
+    m3 = None
+    if profile_type == "round":
+        d = dims.get("diameter_mm")
+        if d is None:
+            return None
+        m3 = math.pi / 4 * d ** 2 * L / 1e9
+    elif profile_type == "square":
+        a = dims.get("side_mm")
+        if a is None:
+            return None
+        m3 = a ** 2 * L / 1e9
+    elif profile_type == "sheet":
+        t, w = dims.get("thickness_mm"), dims.get("width_mm")
+        if t is None or w is None:
+            return None
+        m3 = t * w * L / 1e9
+    elif profile_type == "pipe":
+        D, t = dims.get("outer_mm"), dims.get("wall_mm")
+        if D is None or t is None:
+            return None
+        m3 = math.pi / 4 * (D ** 2 - (D - 2 * t) ** 2) * L / 1e9
+    elif profile_type == "hex":
+        s = dims.get("across_flats_mm")
+        if s is None:
+            return None
+        m3 = 0.866 * s ** 2 * L / 1e9
+    if m3 is None:
+        return None
+    return m3 * density
+
+
+def dims_display(profile_type, dims):
+    """Человекочитаемая строка размеров по профилю для предпросмотра."""
+    if not dims:
+        return ""
+    fmt = fmt_num
+
+    def pair_len():
+        return fmt(dims.get("length_mm")) if dims.get("length_mm") is not None else None
+
+    if profile_type == "round":
+        return f"Ø{fmt(dims['diameter_mm'])}×{pair_len()} мм"
+    if profile_type == "hex":
+        return f"s{fmt(dims['across_flats_mm'])}×{pair_len()} мм"
+    if profile_type == "square":
+        return f"{fmt(dims['side_mm'])}×{pair_len()} мм"
+    if profile_type == "sheet":
+        return (f"{fmt(dims['thickness_mm'])}×{fmt(dims['width_mm'])}"
+                f"×{pair_len()} мм")
+    if profile_type == "pipe":
+        wall = dims.get("wall_mm")
+        if wall is not None:
+            return f"{fmt(dims['outer_mm'])}×{fmt(wall)}×{pair_len()} мм"
+        return f"{fmt(dims['outer_mm'])}×{pair_len()} мм (стенка из справочника)"
+    if profile_type in ("angle", "channel"):
+        return f"L={pair_len()} мм (массу считаю по весу 1 м из справочника)"
+    return "×".join(fmt(v) for v in dims.values()) + " мм"
+
+
+def parse_round_dimensions(text: str):
+    """Совместимость: старые вызовы разбирают пару dхL как круг."""
+    dims = {}
+    nums = find_dim_numbers(text)
+    if len(nums) >= 2:
+        dims["diameter_mm"] = nums[0]
+        dims["length_mm"] = nums[1]
     return dims
 
 
@@ -1140,11 +1475,34 @@ API_ERROR_TEXT = (
 )
 
 
+def _record_dims_display(rec):
+    """Строка размеров для таблицы истории по любому профилю."""
+    d = str((rec.get("raw_text") or "")).lower()
+    p = rec.get("profile_type")
+    if not p:
+        for word, prof in PROFILE_SYNONYMS.items():
+            if re.search(r"\b" + re.escape(word) + r"\b", d):
+                p = prof
+                break
+    dm = to_float(rec.get("diameter_mm"))
+    ln = to_float(rec.get("length_mm"))
+    if p == "round" and dm is not None and ln is not None:
+        return f"Ø{fmt_num(dm)}×{fmt_num(ln)} мм"
+    if dm is not None and ln is not None:
+        return f"{fmt_num(dm)}×{fmt_num(ln)} мм"
+    if ln is not None:
+        return f"L={fmt_num(ln)} мм"
+    return "—"
+
+
 @app.route("/")
 def index():
+    history = db.fetch_history()
+    for rec in history:
+        rec["dims_display"] = _record_dims_display(rec)
     return render_template(
         "index.html",
-        history=db.fetch_history(),
+        history=history,
         settings=load_config(),
         materials_info=MATERIALS_INFO,
     )
@@ -1172,14 +1530,16 @@ def _calculate_impl():
     drawing, text_core = extract_drawing(text)
 
     profile_type = parse_profile_type(text_core)
-    material_name = parse_material(text_core)
     quantity = parse_quantity(text_core)
     shop_parsed = parse_shop(text)
     time_parsed = parse_time_minutes(text_core)
 
+    KNOWN_PROFILES = {"round", "sheet", "pipe", "square", "angle", "channel", "hex"}
+
     dims = {}
-    if profile_type == "round":
-        dims = parse_round_dimensions(text_core)
+    dims_error = None
+    if profile_type:
+        dims, dims_error = parse_dimensions(profile_type, text_core)
 
     errors = []
     warnings = []
@@ -1187,11 +1547,26 @@ def _calculate_impl():
     if not drawing:
         errors.append("Не найден номер чертежа.")
 
-    if profile_type != "round":
-        errors.append("В тестовой версии пока поддерживается только круг.")
+    if not profile_type:
+        errors.append(
+            "Не найден тип заготовки. Укажите профиль: круг/пруток (round), "
+            "лист (sheet), труба (pipe/tube), квадрат (square), уголок (angle), "
+            "швеллер (channel), шестигранник (hex)."
+        )
 
-    if not material_name:
-        errors.append("Не найден материал.")
+    material_name = parse_material(text_core)
+    if not material_name and profile_type in ("angle", "channel"):
+        # для уголка/швеллера марку можно не писать — возьмём из справочника
+        cands = [r for r in MATERIALS_DB if r["profile"] == profile_type]
+        if len(cands) == 1:
+            material_name = (cands[0]["grade"] or cands[0]["material"] or "")
+        elif len(cands) > 1:
+            errors.append(
+                f"В справочнике несколько профилей «{_profile_label(profile_type)}»: "
+                f"{_rows_list_for_error(cands)}. Уточните марку в тексте."
+            )
+    if not material_name and not errors:
+        errors.append("Не найден материал (марка).")
 
     if not quantity:
         quantity = 1
@@ -1202,14 +1577,13 @@ def _calculate_impl():
     if err:
         errors.append(err)
 
-    if "diameter_mm" not in dims or "length_mm" not in dims:
-        errors.append("Не найдены размеры. Нужны диаметр и длина.")
+    if dims_error:
+        errors.append(dims_error)
 
     # --- проверка размеров по диапазону ---
-    for key, label in (("diameter_mm", "Диаметр (мм)"), ("length_mm", "Длина (мм)")):
-        v = dims.get(key)
+    for key, v in dims.items():
         if v is not None:
-            err = check_range(label, v, *FIELD_LIMITS["dimension_mm"])
+            err = check_range(f"Размер ({key})", v, *FIELD_LIMITS["dimension_mm"])
             if err:
                 errors.append(err)
 
@@ -1248,12 +1622,41 @@ def _calculate_impl():
         material, mat_err = find_material(profile_type, material_name, dims)
         if material is None:
             errors.append(mat_err)
-        elif material["density"] is None or material["price_per_kg"] is None:
-            errors.append(
-                f"Для материала '{material['name']}' в справочнике не заполнены плотность или цена."
-            )
+        else:
+            needs_density = (weight_per_m_is_missing(material)
+                             and profile_type not in ("angle", "channel"))
+            if needs_density and material["density"] is None:
+                errors.append(
+                    f"Для материала '{material['name']}' в справочнике не заполнены "
+                    "ни плотность, ни вес 1 м — массу посчитать нечем."
+                )
+            if material["price_per_kg"] is None:
+                errors.append(
+                    f"Для материала '{material['name']}' в справочнике не заполнена цена за кг."
+                )
 
     if errors:
+        return jsonify({"success": False, "errors": errors, "warnings": warnings})
+
+    # труба без стенки в тексте (DхL): берём стенку из ячейки «Размер» справочника
+    if profile_type == "pipe" and dims.get("wall_mm") is None:
+        for n in _numbers_in(material.get("size")):
+            D = dims.get("outer_mm")
+            if D is not None and 0 < n < D:
+                dims["wall_mm"] = n
+                break
+        if dims.get("wall_mm") is None:
+            errors.append("Для трубы не задана стенка: укажите DхtхL либо "
+                          "добавьте стенку в ячейку «Размер» строки справочника.")
+            return jsonify({"success": False, "errors": errors, "warnings": warnings})
+
+    # уголок/швеллер: масса только через weight_per_m из справочника
+    if profile_type in ("angle", "channel") and material.get("weight_per_m") is None:
+        errors.append(
+            f"Масса для профиля «{_profile_label(profile_type)}» считается только по "
+            f"весу 1 м: заполните ячейку «Вес 1 м, кг» строки справочника "
+            f"'{material['name']}'."
+        )
         return jsonify({"success": False, "errors": errors, "warnings": warnings})
 
     # Цех / участок: поле формы важнее распознанного из текста
@@ -1264,11 +1667,13 @@ def _calculate_impl():
     else:
         shop_display = ""
 
-    mass_one = calc_round_mass_kg(
-        diameter_mm=dims["diameter_mm"],
-        length_mm=dims["length_mm"],
-        density=material["density"],
+    mass_one = calc_mass_kg(
+        profile_type or "round", dims,
+        material["density"], material.get("weight_per_m"),
     )
+    if mass_one is None:
+        errors.append("Не удалось рассчитать массу: не хватает размеров или данных справочника.")
+        return jsonify({"success": False, "errors": errors, "warnings": warnings})
 
     mass_total = mass_one * quantity
     material_cost = mass_total * material["price_per_kg"]
@@ -1299,10 +1704,16 @@ def _calculate_impl():
     result = {
         "drawing": drawing,
         "shop": shop_display,
+        "profile_type": profile_type or "round",
+        "profile_label": _profile_label(profile_type or "round"),
         "material_name": material["name"],
         "material_source": material["source"],
-        "diameter_mm": dims["diameter_mm"],
-        "length_mm": dims["length_mm"],
+        "dims": dims,
+        "dims_display": dims_display(profile_type, dims),
+        # совместимость со старой историей/шаблоном: первые два размера
+        "diameter_mm": (dims.get("diameter_mm") if "diameter_mm" in dims
+                        else next(iter(dims.values()), None)),
+        "length_mm": dims.get("length_mm"),
         "quantity": quantity,
         "mass_one": round(mass_one, 3),
         "mass_total": round(mass_total, 3),
