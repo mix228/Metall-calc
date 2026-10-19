@@ -16,6 +16,26 @@ import db
 
 app = Flask(__name__)
 
+
+@app.template_filter("fnum")
+def fnum(v, signed=False):
+    """Красивый вывод числа: без хвостовых нулей (60.0 -> 60, 4.620 -> 4.62).
+    signed=True — всегда со знаком (+/-), для журнала движений."""
+    if v is None or v == "":
+        return ""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    s = f"{f:+.3f}" if signed else f"{f:.3f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    if s in ("-0", "-0.0", ""):
+        s = "0"
+    if signed and not s.startswith(("+", "-")):
+        s = "+" + s
+    return s
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DATA_DIR = os.path.join(BASE_DIR, "data")
 
@@ -627,13 +647,16 @@ def apply_stock_delta(key, delta_units, invoice=None):
 
 
 def record_stock_move(move_type, key, qty_units, qty_kg, stock_after,
-                      basis="", posting_id=None, shortage=False):
+                      basis="", posting_id=None, shortage=False, unit=None):
     """Запись движения в журнал (SQLite, транзакция)."""
     try:
+        if unit is None:
+            unit = _row_unit(find_row_by_key(key))
         db.add_stock_move({
             "move_type": move_type,
             "row_key": key,
             "material_label": material_label_from_key(key),
+            "unit": unit,
             "qty_units": qty_units,
             "qty_kg": qty_kg,
             "stock_after": stock_after,
@@ -745,7 +768,10 @@ def stock_rows():
             "material": r.get("material") or "",
             "grade": r.get("grade") or "",
             "size": r.get("size") or "",
+            "density": r.get("density"),
+            "price_per_kg": r.get("price_per_kg"),
             "weight_per_m": r.get("weight_per_m"),
+            "note": r.get("note") or "",
             "unit": unit,
             "stock_units": stock,
             "kg_per_unit": kgpu,
@@ -1547,6 +1573,7 @@ def materials_page():
         rows=MATERIALS_DB,
         info=MATERIALS_INFO,
         source_kind=MATERIALS_SOURCE_KIND,
+        units=load_units(),
         msg=request.args.get("msg", ""),
     )
 
@@ -1583,6 +1610,178 @@ def materials_delete():
         logging.exception("Ошибка удаления строки справочника")
         msg = "Не удалось удалить строку: внутренняя ошибка. Попробуйте ещё раз."
     return redirect(url_for("materials_page", msg=msg))
+
+
+# ============================================================
+# СТРАНИЦА «СКЛАД» (/stock): остатки, приход, журнал, единицы
+# ============================================================
+
+def _shortage_moves(limit=500):
+    """Списания, после которых остаток ушёл в минус (блок «Недостачи»)."""
+    try:
+        return [m for m in db.fetch_stock_moves(limit) if m.get("shortage")]
+    except Exception:
+        logging.exception("Не удалось прочитать журнал недостач")
+        return []
+
+
+@app.route("/stock")
+def stock_page():
+    try:
+        return render_template(
+            "stock.html",
+            rows=stock_rows(),
+            units=load_units(),
+            moves=db.fetch_stock_moves(200),
+            shortages=_shortage_moves(),
+            info=MATERIALS_INFO,
+            source_kind=MATERIALS_SOURCE_KIND,
+            msg=request.args.get("msg", ""),
+        )
+    except Exception:
+        logging.exception("Ошибка страницы /stock")
+        return ("<h1>Ошибка склада</h1><p>Не удалось отобразить страницу «Склад». "
+                "Обновите страницу; если ошибка повторяется — проверьте файл справочника.</p>"
+                "<a href='/'>Назад к калькулятору</a>"), 500
+
+
+@app.route("/stock/update", methods=["POST"])
+def stock_update():
+    """Инлайн-правка складских полей строки. Пишет те же ячейки файла
+    справочника, что и /materials_page (update_material сохраняет и
+    остальные поля строки без изменений — они приходят из формы)."""
+    try:
+        row = to_float(request.form.get("row"))
+        values = {k: request.form.get(k, "") for k in DEFAULT_HEADER_FIELDS}
+        kgpu = to_float(values.get("kg_per_unit"))
+        if kgpu is not None and kgpu <= 0:
+            msg = "Кг на 1 единицу учёта должно быть больше нуля."
+        else:
+            msg = update_material(int(row) if row else None, values)
+    except Exception:
+        logging.exception("Ошибка сохранения склада из /stock")
+        msg = "Не удалось сохранить: внутренняя ошибка. Попробуйте ещё раз."
+    return redirect(url_for("stock_page", msg=msg))
+
+
+@app.route("/stock/receive", methods=["POST"])
+def stock_receive():
+    """Приход по накладной: остаток += количество, запись журнала «приход»."""
+    try:
+        key = str(request.form.get("key") or "").strip()
+        qty = to_float(request.form.get("qty"))
+        invoice = str(request.form.get("invoice") or "").strip()
+        if not key:
+            msg = "Выберите материал для прихода."
+        elif qty is None or qty <= 0:
+            msg = "Количество прихода должно быть числом больше нуля."
+        else:
+            row = find_row_by_key(key)
+            if row is None:
+                msg = "Материал не найден в справочнике."
+            elif not (row.get("unit") or "").strip():
+                msg = ("У материала не задана «Единица учёта» — заведите её "
+                       "на странице «Справочник» или прямо здесь.")
+            else:
+                new_stock, err = apply_stock_delta(key, +qty, invoice=invoice or None)
+                if err:
+                    msg = err
+                else:
+                    kgpu = to_float(row.get("kg_per_unit"))
+                    record_stock_move(
+                        "приход", key,
+                        qty_units=+qty,
+                        qty_kg=round(qty * kgpu, 3) if kgpu else None,
+                        stock_after=new_stock,
+                        basis=invoice or "приход без накладной",
+                    )
+                    msg = (f"Приход выполнен: +{fmt_num(qty)} "
+                           f"{row['unit']}, остаток {fmt_num(new_stock)} "
+                           f"{row['unit']}.")
+    except Exception:
+        logging.exception("Ошибка прихода по накладной")
+        msg = "Не выполнить приход: внутренняя ошибка. Попробуйте ещё раз."
+    return redirect(url_for("stock_page", msg=msg))
+
+
+@app.route("/stock/adjust", methods=["POST"])
+def stock_adjust():
+    """Корректировка остатка: ввод нового значения + причина,
+    в журнал пишется разница типом «корректировка»."""
+    try:
+        key = str(request.form.get("key") or "").strip()
+        new_val = to_float(request.form.get("new_value"))
+        reason = str(request.form.get("reason") or "").strip()
+        row = find_row_by_key(key) if key else None
+        if row is None:
+            msg = "Материал не найден — корректировка не выполнена."
+        elif new_val is None:
+            msg = "Новый остаток должен быть числом (минус допустим)."
+        else:
+            cur = to_float(row.get("stock_units")) or 0.0
+            delta = round(new_val - cur, 6)
+            if abs(delta) < 1e-9:
+                msg = "Новый остаток совпадает с текущим — движение не записано."
+            elif not (row.get("unit") or "").strip():
+                msg = "У материала не задана единица учёта — остаток не корректируется."
+            else:
+                _, err = apply_stock_delta(key, delta)
+                if err:
+                    msg = err
+                else:
+                    kgpu = to_float(row.get("kg_per_unit"))
+                    record_stock_move(
+                        "корректировка", key,
+                        qty_units=delta,
+                        qty_kg=round(delta * kgpu, 3) if kgpu else None,
+                        stock_after=new_val,
+                        basis=reason or "корректировка вручную",
+                        shortage=new_val < 0,
+                    )
+                    msg = (f"Остаток скорректирован: {fmt_num(cur)} → {fmt_num(new_val)} "
+                           f"{row['unit']} (разница {fmt_num(delta)}).")
+    except Exception:
+        logging.exception("Ошибка корректировки остатка")
+        msg = "Не удалось скорректировать остаток: внутренняя ошибка."
+    return redirect(url_for("stock_page", msg=msg))
+
+
+@app.route("/stock/unit/add", methods=["POST"])
+def stock_unit_add():
+    try:
+        name, msg = add_unit(request.form.get("name", ""))
+        if name is None:
+            msg = msg or "Не удалось добавить единицу."
+    except Exception:
+        logging.exception("Ошибка добавления единицы учёта")
+        msg = "Не удалось добавить единицу: внутренняя ошибка."
+    return redirect(url_for("stock_page", msg=msg))
+
+
+@app.route("/stock/unit/delete", methods=["POST"])
+def stock_unit_delete():
+    try:
+        name, msg = delete_unit(request.form.get("name", ""))
+        if name is None:
+            msg = msg or "Не удалось удалить единицу."
+    except Exception:
+        logging.exception("Ошибка удаления единицы учёта")
+        msg = "Не удалось удалить единицу: внутренняя ошибка."
+    return redirect(url_for("stock_page", msg=msg))
+
+
+@app.route("/stock/suggest", methods=["POST"])
+def stock_suggest():
+    """Автоподсказка «Кг на 1 единицу учёта» при выборе единицы в UI."""
+    try:
+        unit = str(request.form.get("unit") or "").strip()
+        wpm = to_float(request.form.get("weight_per_m"))
+        sug = suggest_kg_per_unit(unit, wpm)
+        return jsonify({"success": True, "kg_per_unit": sug})
+    except Exception:
+        logging.exception("Ошибка в /stock/suggest")
+        return jsonify({"success": False, "kg_per_unit": None,
+                        "errors": [API_ERROR_TEXT]}), 500
 
 
 # ============================================================

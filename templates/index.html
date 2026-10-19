@@ -134,6 +134,27 @@
             margin-bottom: 14px;
         }
 
+        /* строка складского остатка в предпросмотре расчёта */
+        .stock-line {
+            margin-top: 14px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .stock-ok {
+            background: rgba(40,167,69,0.16);
+            border: 1px solid rgba(40,167,69,0.5);
+            color: var(--text, #1e6b2f);
+        }
+        .stock-warn {
+            background: rgba(255,193,7,0.18);
+            border: 1px solid rgba(255,193,7,0.5);
+            color: var(--text, #856404);
+        }
+        [data-theme="dark"] .stock-ok { color: #7be08c; }
+        [data-theme="dark"] .stock-warn { color: #ffd66b; }
+
         .error-list { list-style: none; margin-left: 6px; }
 
         .loading { display: none; text-align: center; padding: 20px; color: var(--muted, #666); }
@@ -222,6 +243,7 @@
             Справочник: <b>{{ materials_info.source }}</b> · строк: <b>{{ materials_info.count }}</b>
             <button class="btn-small" onclick="reloadMaterials()">Перезагрузить</button>
             <a href="/materials_page" style="margin-left:10px; font-weight:600;">Открыть редактор справочника</a>
+            <a href="/stock" style="margin-left:10px; font-weight:600;">🏗️ Склад (остатки)</a>
         </div>
 
         <div class="examples">
@@ -392,6 +414,33 @@
             }
         }
 
+        function fmtSmart(v) {
+            if (v === null || v === undefined) return '—';
+            const f = Number(v);
+            if (!Number.isFinite(f)) return String(v);
+            if (Math.abs(f - Math.round(f)) < 1e-9) return String(Math.round(f));
+            return f.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+        }
+
+        // Строка складского остатка в предпросмотре расчёта:
+        // достаток — зелёная, нехватка — жёлтое предупреждение с цифрами.
+        // Расчёт при нехватке НЕ блокируется.
+        function stockLineHtml(r) {
+            if (!r.stock_tracked) return '';
+            const unit = r.stock_unit || 'ед.';
+            if (r.kg_per_unit === null || r.kg_per_unit === undefined) {
+                return `<div class="stock-line stock-warn">⚠️ Для материала ${r.material_name} не задан пересчёт в учётную единицу — остаток не проверяется.</div>`;
+            }
+            const stockU = fmtSmart(r.stock_units || 0);
+            const stockKg = fmtSmart((r.stock_units || 0) * r.kg_per_unit);
+            const reqU = fmtSmart(r.required_units);
+            const reqKg = fmtSmart(r.mass_total);
+            if (r.stock_ok) {
+                return `<div class="stock-line stock-ok">📦 Остаток: есть ${stockU} ${unit} (${stockKg} кг), требуется ${reqU} ${unit} (${reqKg} кг)</div>`;
+            }
+            return `<div class="stock-line stock-warn">⚠️ Недостаточно остатка по ${r.material_name}: не хватает ${fmtSmart(r.required_units - (r.stock_units || 0))} ${unit} (${fmtSmart((r.required_units - (r.stock_units || 0)) * r.kg_per_unit)} кг). Запись создаст недостачу.</div>`;
+        }
+
         function displayResult(r) {
             const resultDiv = document.getElementById('result');
 
@@ -423,6 +472,7 @@
                     <div class="result-item"><strong>Себестоимость 1 шт</strong><span>${r.unit_cost} руб</span></div>
                     <div class="result-item total"><strong>ИТОГО</strong><span>${r.total_cost} руб</span></div>
                 </div>
+                ${stockLineHtml(r)}
                 <div class="actions">
                     <button class="btn-confirm" onclick="confirmRecord()">✓ Подтвердить и сохранить</button>
                     <button class="btn-cancel" onclick="cancelRecord()">✗ Отменить</button>
@@ -472,7 +522,10 @@
                 }
 
                 if (data.success) {
-                    alert('Запись сохранена!');
+                    const sm = (data.stock_messages && data.stock_messages.length)
+                        ? '\n\nСклад:\n• ' + data.stock_messages.join('\n• ')
+                        : '';
+                    alert('Запись сохранена!' + sm);
                     location.reload();
                 } else {
                     alert((data.errors && data.errors[0]) || "Не удалось сохранить запись.");
@@ -517,8 +570,18 @@
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ id: parseInt(id, 10) })
-                    }).then(function (r) { return r.json(); }).then(function (j) {
+                    }).then(function (r) { return r.text(); }).then(function (text) {
+                        var j = null;
+                        try { j = text ? JSON.parse(text) : null; } catch (e) { j = null; }
+                        if (!j) {
+                            alert(serverUnavailableMessage());
+                            return;
+                        }
                         if (j.success) {
+                            var sm = (j.stock_messages && j.stock_messages.length)
+                                ? '\n\nСклад:\n• ' + j.stock_messages.join('\n• ')
+                                : '';
+                            if (sm) alert('Запись удалена.' + sm);
                             if (row) row.remove();
                         } else {
                             alert((j.errors && j.errors[0]) || "Не удалось удалить запись.");

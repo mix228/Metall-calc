@@ -62,11 +62,14 @@
 
         .grid-row {
             display: grid;
-            grid-template-columns: 110px 110px 90px 130px 90px 90px 90px 130px 170px;
+            grid-template-columns: 100px 100px 80px 110px 80px 80px 80px 110px 90px 80px 85px 120px 160px;
             gap: 6px;
             align-items: center;
             margin-bottom: 6px;
         }
+
+        /* складские колонки визуально отделены от базовых */
+        .stock-col { border-left: 2px solid var(--accent, #0a6cdf); padding-left: 4px; }
 
         .grid-row.header {
             font-weight: 600;
@@ -193,6 +196,10 @@
             <div>Цена/кг</div>
             <div>Вес 1 м</div>
             <div>Примечание</div>
+            <div class="stock-col">Ед. учёта</div>
+            <div>Остаток, ед.</div>
+            <div>Кг на 1 ед.</div>
+            <div>Накладная</div>
             <div>Действия</div>
         </div>
 
@@ -206,6 +213,10 @@
             <option value="шестигранник">
         </datalist>
 
+        <datalist id="unitList">
+            {% for u in units %}<option value="{{ u }}">{% endfor %}
+        </datalist>
+
         {% for r in rows %}
         <form method="post" action="/materials/update" class="grid-row row-line">
             <input type="hidden" name="row" value="{{ r.source_row or '' }}">
@@ -217,6 +228,10 @@
             <div data-label="Цена/кг"><input name="price_per_kg" value="{{ r.price_per_kg if r.price_per_kg is not none else '' }}"></div>
             <div data-label="Вес 1 м"><input name="weight_per_m" value="{{ r.weight_per_m if r.weight_per_m is not none else '' }}"></div>
             <div data-label="Примечание"><input name="note" value="{{ r.note or '' }}"></div>
+            <div data-label="Ед. учёта" class="stock-col"><input name="unit" list="unitList" value="{{ r.unit or '' }}" placeholder="кг / м / шт"></div>
+            <div data-label="Остаток, ед."><input name="stock_units" value="{{ r.stock_units if r.stock_units is not none else '' }}"></div>
+            <div data-label="Кг на 1 ед."><input name="kg_per_unit" value="{{ r.kg_per_unit if r.kg_per_unit is not none else '' }}"></div>
+            <div data-label="Накладная"><input name="invoice" value="{{ r.invoice or '' }}"></div>
             <div data-label="Действия">
                 <button class="btn-save" type="submit">Сохранить</button>
                 <button class="btn-del" type="submit" formaction="/materials/delete"
@@ -238,6 +253,10 @@
             <div data-label="Цена/кг"><input name="price_per_kg" placeholder="85"></div>
             <div data-label="Вес 1 м"><input name="weight_per_m" placeholder=""></div>
             <div data-label="Примечание"><input name="note" placeholder=""></div>
+            <div data-label="Ед. учёта" class="stock-col"><input name="unit" list="unitList" placeholder="кг"></div>
+            <div data-label="Остаток, ед."><input name="stock_units" placeholder="0"></div>
+            <div data-label="Кг на 1 ед."><input name="kg_per_unit" placeholder="1"></div>
+            <div data-label="Накладная"><input name="invoice" placeholder=""></div>
             <div data-label="Действия"><button class="btn-add" type="submit">Добавить</button></div>
         </form>
     </div>
