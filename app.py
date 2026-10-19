@@ -881,8 +881,7 @@ def update_material(row_idx, values):
                 str(x) if x is not None else ""
                 for x in _row_values(values, MATERIALS_CSV_FIELDS, empty="")
             ]
-        with open(MATERIALS_CSV, "w", newline="", encoding="utf-8-sig") as f:
-            csv.writer(f).writerows(all_rows)
+        _write_csv_atomic(all_rows)
         load_materials_db()
         return "Строка сохранена"
 
@@ -1152,10 +1151,18 @@ def index():
 
 
 def _calculate_impl():
-    data = request.form.get("input_text", "")
-    shop_from_form = request.form.get("shop", "").strip()
-    time_from_form = request.form.get("time_min", "").strip()
-    price_min_from_form = request.form.get("price_per_min", "").strip()
+    # Форма отправляет form-data; API/тесты могут слать JSON {"data": "..."}.
+    payload = request.get_json(silent=True) if request.is_json else None
+    if isinstance(payload, dict):
+        data = str(payload.get("data") or payload.get("input_text") or "")
+        shop_from_form = str(payload.get("shop") or "").strip()
+        time_from_form = str(payload.get("time_min") or "").strip()
+        price_min_from_form = str(payload.get("price_per_min") or "").strip()
+    else:
+        data = request.form.get("input_text", "")
+        shop_from_form = request.form.get("shop", "").strip()
+        time_from_form = request.form.get("time_min", "").strip()
+        price_min_from_form = request.form.get("price_per_min", "").strip()
 
     if not data.strip():
         return jsonify({"success": False, "errors": ["Введите текст"], "warnings": []})

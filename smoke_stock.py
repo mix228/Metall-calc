@@ -80,22 +80,32 @@ assert moves and moves[0]["move_type"] == "приход" and moves[0]["basis"] =
 print("журнал: последнее движение =", moves[0]["move_type"], moves[0]["qty_units"], moves[0]["unit"])
 
 print("\n== /calculate: поля склада + предупреждение при нехватке, расчёт не блокируется ==")
-payload = {"data": "ЧР-100\nСталь 45 круг Ø60\nДлина 1000 мм\nКол-во 1 шт\nШв 10 мин\nСтавка 50 руб"}
 import json
-r = cl.post("/calculate", data=json.dumps(payload), content_type="application/json")
-res = r.get_json()["result"]
+TEXT_1 = ("чертеж ЧР-100, круг Сталь 45 Ø60 мм, длина 1000 мм, "
+          "количество 1 шт, время 10 мин")
+TEXT_50 = TEXT_1.replace("количество 1 шт", "количество 50 шт")
+
+
+def calc(text):
+    r = cl.post("/calculate", data=json.dumps({"data": text}),
+                content_type="application/json")
+    j = r.get_json()
+    assert r.status_code == 200 and j.get("success"), j
+    return j["result"]
+
+
+res = calc(TEXT_1)
 mass_total = res["mass_total"]
-req = round(mass_total / 22.2, 6)
+# сравнение с тем же порядком округления, что в stock_check()
+req = round(round(mass_total, 3) / 22.2, 6)
 print("mass_total =", mass_total, "kg; stock_units =", res["stock_units"],
       "required_units =", res["required_units"], "stock_ok =", res["stock_ok"])
-assert res["stock_tracked"] and abs(res["required_units"] - req) < 1e-6
+assert res["stock_tracked"] and abs(res["required_units"] - req) <= 1e-4
 assert res["stock_ok"] is True  # 15 м в остатке, нужно меньше
 
-# большой расход -> жёлтое предупреждение, но success=True
-payload2 = dict(payload); payload2["data"] = payload["data"].replace("Кол-во 1 шт", "Кол-во 50 шт")
-r = cl.post("/calculate", data=json.dumps(payload2), content_type="application/json")
-res2 = r.get_json()["result"]
-assert r.status_code == 200 and r.get_json()["success"] and res2["stock_ok"] is False
+# большой расход -> жёлтое предупреждение, но success=True (расчёт не блокируется)
+res2 = calc(TEXT_50)
+assert res2["stock_ok"] is False and res2["stock_warning"]
 print("предупреждение:", res2["stock_warning"])
 
 print("\n== /confirm: списание <= остатка (зелёное) ==")
