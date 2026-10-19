@@ -8,6 +8,14 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
     <style>
+        {# Идемпотентные значения по умолчанию: страница рендерится даже без данных #}
+        {% set rows = rows|default([]) %}
+        {% set units = units|default([]) %}
+        {% set moves = moves|default([]) %}
+        {% set shortages = shortages|default([]) %}
+        {% set info = info|default({}) %}
+        {% set source_kind = source_kind|default('none') %}
+        {% set msg = msg|default('') %}
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
@@ -316,14 +324,14 @@
         <p class="subtitle">Остатки хранятся в тех же ячейках файла справочника, что видит страница «Справочник». Списание возможно только в учётной единице материала.</p>
 
         <div class="banner">
-            Источник остатков: <b>{{ fnum(info.source) }}</b> · строк: <b>{{ fnum(info.count) }}</b>
+            Источник остатков: <b>{{ info.get('source'|fnum if info else 'нет') }}</b> · строк: <b>{{ info.get('count'|fnum if info else 0) }}</b>
             {% if source_kind == "none" %}
                 <br>Файл справочника не найден — заведите его или добавьте первую строку на странице «Справочник».
             {% endif %}
         </div>
 
         {% if msg %}
-        <div class="banner msg">{{ fnum(msg) }}</div>
+        <div class="banner msg">{{ msg|fnum }}</div>
         {% endif %}
 
         <h2>📦 Остатки</h2>
@@ -342,41 +350,42 @@
 
         {% for r in rows %}
         <form method="post" action="/stock/update" class="grid-row row-line">
-            <input type="hidden" name="row" value="{{ fnum(r.row or '') }}">
-            <input type="hidden" name="profile" value="{{ fnum(r.profile or '') }}">
-            <input type="hidden" name="material" value="{{ fnum(r.material or '') }}">
-            <input type="hidden" name="grade" value="{{ fnum(r.grade or '') }}">
-            <input type="hidden" name="size" value="{{ fnum(r.size or '') }}">
-            <input type="hidden" name="density" value="{{ fnum(r.density if r.density is not none else '') }}">
-            <input type="hidden" name="price_per_kg" value="{{ fnum(r.price_per_kg if r.price_per_kg is not none else '') }}">
-            <input type="hidden" name="weight_per_m" value="{{ fnum(r.weight_per_m if r.weight_per_m is not none else '') }}">
-            <div data-label="Материал / марка / размер" class="calc-cell">{{ fnum(r.label or '—') }}</div>
+            <input type="hidden" name="row" value="{{ r.row or ''|fnum }}">
+            <input type="hidden" name="profile" value="{{ r.profile or ''|fnum }}">
+            <input type="hidden" name="material" value="{{ r.material or ''|fnum }}">
+            <input type="hidden" name="grade" value="{{ r.grade or ''|fnum }}">
+            <input type="hidden" name="size" value="{{ r.size or ''|fnum }}">
+            <input type="hidden" name="density" value="{{ r.density if r.density is not none else ''|fnum }}">
+            <input type="hidden" name="price_per_kg" value="{{ r.price_per_kg if r.price_per_kg is not none else ''|fnum }}">
+            <input type="hidden" name="weight_per_m" value="{{ r.weight_per_m if r.weight_per_m is not none else ''|fnum }}">
+            <input type="hidden" name="note" value="{{ r.note or ''|fnum }}">
+            <div data-label="Материал / марка / размер" class="calc-cell">{{ r.label or '—'|fnum }}</div>
             <div data-label="Ед. учёта">
-                <select name="unit" data-wpm="{{ fnum(r.weight_per_m if r.weight_per_m is not none else '') }}"
+                <select name="unit" data-wpm="{{ r.weight_per_m if r.weight_per_m is not none else ''|fnum }}"
                         onchange="onUnitChange(this)">
                     <option value="">— не вести —</option>
                     {% for u in units %}
-                    <option value="{{ fnum(u) }}" {% if u == r.unit %}selected{% endif %}>{{ fnum(u) }}</option>
+                    <option value="{{ u|fnum }}" {% if u == r.unit %}selected{% endif %}>{{ u|fnum }}</option>
                     {% endfor %}
                     {% if r.unit and r.unit not in units %}
-                    <option value="{{ fnum(r.unit) }}" selected>{{ fnum(r.unit) }} (вне справочника)</option>
+                    <option value="{{ r.unit|fnum }}" selected>{{ r.unit|fnum }} (вне справочника)</option>
                     {% endif %}
                 </select>
             </div>
             <div data-label="Остаток, ед."><input name="stock_units" inputmode="decimal"
-                value="{{ fnum(r.stock_units if r.stock_units is not none else '') }}" placeholder="0"></div>
+                value="{{ r.stock_units if r.stock_units is not none else ''|fnum }}" placeholder="0"></div>
             <div data-label="Кг на 1 ед."><input name="kg_per_unit" class="kgpu-input" inputmode="decimal"
-                value="{{ fnum(r.kg_per_unit if r.kg_per_unit is not none else '') }}" placeholder="кг/ед."
+                value="{{ r.kg_per_unit if r.kg_per_unit is not none else ''|fnum }}" placeholder="кг/ед."
                 title="Автоподсказка при выборе единицы; для шт/компл/лист — ручной ввод"></div>
             <div data-label="Остаток, кг" class="calc-cell kg-cell {{ 'neg' if r.stock_kg is not none and r.stock_kg < 0 }}">
-                {% if r.stock_kg is not none %}{{ fnum(r.stock_kg) }}{% else %}—{% endif %}
+                {% if r.stock_kg is not none %}{{ r.stock_kg|fnum }}{% else %}—{% endif %}
             </div>
-            <div data-label="Накладная"><input name="invoice" value="{{ fnum(r.invoice or '') }}" placeholder="№ и дата прихода"></div>
+            <div data-label="Накладная"><input name="invoice" value="{{ r.invoice or ''|fnum }}" placeholder="№ и дата прихода"></div>
             <div></div>
             <div data-label="Действия">
                 <button class="btn-save" type="submit">Сохранить</button>
                 {% if r.tracked %}
-                <button class="btn-adjust" type="button" onclick="openAdjust('{{ r.key|e }}', '{{ r.label|e }}', '{{ r.unit|e }}', '{{ fnum(r.stock_units if r.stock_units is not none else '') }}')">Корректировка</button>
+                <button class="btn-adjust" type="button" onclick="openAdjust('{{ r.key|e }}', '{{ r.label|e }}', '{{ r.unit|e }}', '{{ r.stock_units if r.stock_units is not none else ''|fnum }}')">Корректировка</button>
                 {% endif %}
             </div>
         </form>
@@ -392,7 +401,7 @@
                     <option value="">— выберите —</option>
                     {% for r in rows %}
                     {% if r.tracked %}
-                    <option value="{{ r.key|e }}">{{ fnum(r.label) }} [{{ fnum(r.unit) }}], остаток {{ fnum(r.stock_units if r.stock_units is not none else 0) }}</option>
+                    <option value="{{ r.key|e }}">{{ r.label|fnum }} [{{ r.unit|fnum }}], остаток {{ r.stock_units if r.stock_units is not none else 0|fnum }}</option>
                     {% endif %}
                     {% endfor %}
                 </select>
@@ -422,22 +431,22 @@
                 <tbody>
                     {% for m in moves %}
                     <tr>
-                        <td>{{ fnum(m.created_at) }}</td>
+                        <td>{{ m.created_at|fnum }}</td>
                         <td>
                             {% if m.move_type == 'приход' %}<span class="tag tag-in">приход</span>
                             {% elif m.move_type == 'списание' %}<span class="tag tag-out">списание</span>
-                            {% else %}<span class="tag tag-fix">{{ fnum(m.move_type) }}</span>{% endif %}
+                            {% else %}<span class="tag tag-fix">{{ m.move_type|fnum }}</span>{% endif %}
                             {% if m.shortage %} <span class="tag tag-short">недостача</span>{% endif %}
                         </td>
-                        <td>{{ fnum(m.material_label) }}</td>
-                        <td class="{{ fnum('qty-plus' if (m.qty_units or 0) >= 0 else 'qty-minus') }}">
-                            {{ fnum(m.qty_units or 0, signed=true) }} {{ fnum(m.unit) }}
+                        <td>{{ m.material_label|fnum }}</td>
+                        <td class="{{ 'qty-plus' if (m.qty_units or 0) >= 0 else 'qty-minus' }}">
+                            {{ (m.qty_units or 0)|fnum(true) }} {{ m.unit|fnum }}
                         </td>
-                        <td class="{{ fnum('qty-plus' if (m.qty_kg or 0) >= 0 else 'qty-minus') }}">
-                            {% if m.qty_kg is not none %}{{ fnum(m.qty_kg, signed=true) }}{% else %}—{% endif %}
+                        <td class="{{ 'qty-plus' if (m.qty_kg or 0) >= 0 else 'qty-minus' }}">
+                            {% if m.qty_kg is not none %}{{ m.qty_kg|fnum(true) }}{% else %}—{% endif %}
                         </td>
-                        <td>{{ fnum(m.stock_after if m.stock_after is not none else 0) }}</td>
-                        <td>{{ fnum(m.basis) }}</td>
+                        <td>{{ (m.stock_after if m.stock_after is not none else 0)|fnum }}</td>
+                        <td>{{ m.basis|fnum }}</td>
                     </tr>
                     {% else %}
                     <tr><td colspan="7">Движений пока нет. Приход — формой выше, списание — из расчёта на главной.</td></tr>
@@ -459,11 +468,11 @@
                 <tbody>
                     {% for m in shortages %}
                     <tr>
-                        <td>{{ fnum(m.created_at) }}</td>
-                        <td>{{ fnum(m.material_label) }}</td>
-                        <td class="qty-minus">{{ fnum(m.qty_units or 0) }} {{ fnum(m.unit) }}</td>
-                        <td class="qty-minus">{{ fnum(m.stock_after or 0) }} {{ fnum(m.unit) }}</td>
-                        <td>{{ fnum(m.basis) }}</td>
+                        <td>{{ m.created_at|fnum }}</td>
+                        <td>{{ m.material_label|fnum }}</td>
+                        <td class="qty-minus">{{ m.qty_units or 0|fnum }} {{ m.unit|fnum }}</td>
+                        <td class="qty-minus">{{ m.stock_after or 0|fnum }} {{ m.unit|fnum }}</td>
+                        <td>{{ m.basis|fnum }}</td>
                     </tr>
                     {% else %}
                     <tr><td colspan="5">Недостач нет 🎉</td></tr>
@@ -478,11 +487,11 @@
         <div class="units-list">
             {% for u in units %}
             <span class="unit-chip">
-                {{ fnum(u) }}
+                {{ u|fnum }}
                 <form method="post" action="/stock/unit/delete" style="display:inline;">
-                    <input type="hidden" name="name" value="{{ fnum(u) }}">
+                    <input type="hidden" name="name" value="{{ u|fnum }}">
                     <button class="unit-del" type="submit" title="Удалить единицу"
-                            onclick="return confirm('Удалить единицу «{{ fnum(u) }}»?');">×</button>
+                            onclick="return confirm('Удалить единицу «{{ u|fnum }}»?');">×</button>
                 </form>
             </span>
             {% endfor %}

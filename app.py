@@ -647,13 +647,16 @@ def apply_stock_delta(key, delta_units, invoice=None):
 
 
 def record_stock_move(move_type, key, qty_units, qty_kg, stock_after,
-                      basis="", posting_id=None, shortage=False):
+                      basis="", posting_id=None, shortage=False, unit=None):
     """Запись движения в журнал (SQLite, транзакция)."""
     try:
+        if unit is None:
+            unit = _row_unit(find_row_by_key(key))
         db.add_stock_move({
             "move_type": move_type,
             "row_key": key,
             "material_label": material_label_from_key(key),
+            "unit": unit,
             "qty_units": qty_units,
             "qty_kg": qty_kg,
             "stock_after": stock_after,
@@ -765,7 +768,10 @@ def stock_rows():
             "material": r.get("material") or "",
             "grade": r.get("grade") or "",
             "size": r.get("size") or "",
+            "density": r.get("density"),
+            "price_per_kg": r.get("price_per_kg"),
             "weight_per_m": r.get("weight_per_m"),
+            "note": r.get("note") or "",
             "unit": unit,
             "stock_units": stock,
             "kg_per_unit": kgpu,
